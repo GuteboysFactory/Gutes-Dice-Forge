@@ -1,0 +1,71 @@
+name: Build Stable Foundry Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "module.json"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "scripts/api.js"
+      - "scripts/main.js"
+      - "scripts/integration/genesys-auto-bridge.js"
+      - ".github/workflows/build-stable-package.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rebuild stable module zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          mkdir build
+          unzip -q genesys-dice-forge.zip -d build
+          cp module.json build/module.json
+          cp README.md build/README.md
+          cp CHANGELOG.md build/CHANGELOG.md
+          mkdir -p build/scripts/integration
+          cp scripts/api.js build/scripts/api.js
+          cp scripts/main.js build/scripts/main.js
+          cp scripts/integration/genesys-auto-bridge.js build/scripts/integration/genesys-auto-bridge.js
+          (cd build && zip -qr ../genesys-dice-forge.new.zip .)
+          mv genesys-dice-forge.new.zip genesys-dice-forge.zip
+
+      - name: Verify package manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
+          python - <<'PY'
+          import json
+          with open('/tmp/gdf-module.json', encoding='utf-8') as f:
+              manifest = json.load(f)
+          assert manifest['id'] == 'genesys-dice-forge'
+          assert manifest['version'] == '0.7.4'
+          assert manifest['compatibility']['minimum'] == '13.351'
+          assert str(manifest['compatibility']['maximum']) == '14'
+          print('Verified Genesys Dice Forge', manifest['version'])
+          PY
+
+      - name: Commit stable package if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- genesys-dice-forge.zip; then
+            echo "Stable package already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add genesys-dice-forge.zip
+          git commit -m "Build stable Genesys Dice Forge package"
+          git push
