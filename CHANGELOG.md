@@ -1,5 +1,16 @@
 # Genesys Dice Forge Changelog
 
+## 0.7.5 - Foundry v13/v14 Rendered Chat Capture
+
+- Adds a final-DOM fallback using Foundry's modern `renderChatMessageHTML` hook.
+- Explicitly avoids the deprecated `renderChatMessage` hook so the Dice Forge path remains suitable for Foundry v13.351 and Version 14.
+- Inspects the fully rendered chat card after system/module decoration for exact Genesys die type + physical face information.
+- Adds a zero-delay deferred second inspection for cards decorated during the same render cycle.
+- Debug mode now reports whether the final rendered chat card was seen and whether physical faces could be recovered.
+- Keeps the existing flags, roll-term, chat-content, data-attribute and resolved-hook auto-capture paths.
+- Uses a version-specific package URL (`dist/genesys-dice-forge-v0.7.5.zip`) to avoid stale Foundry package caching between integration patches.
+- No changes to GOLD adaptive audio, premium dice artwork, face distributions or tabletop physics.
+
 ## 0.7.4 - Zero-Config Genesys Auto Capture
 
 - Makes module activation the only required integration step in a Genesys world.
