@@ -2,7 +2,7 @@
   "id": "genesys-dice-forge",
   "title": "Genesys Dice Forge",
   "description": "Dedicated native-WebGL 3D narrative dice module for Genesys. Zero-config automatic Genesys roll capture, premium physical dice, authentic face composition, natural deterministic face-up settling, always-on-top presentation, standalone roll simulator, adaptive audio, Foundry VTT 13.351 and Version 14.",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "compatibility": {
     "minimum": "13.351",
     "verified": "13.351",
@@ -26,5 +26,5 @@
   },
   "url": "https://github.com/GuteboysFactory/Gutes-Dice-Forge",
   "manifest": "https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/module.json",
-  "download": "https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/genesys-dice-forge.zip"
+  "download": "https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/dist/genesys-dice-forge-v0.7.5.zip"
 }
