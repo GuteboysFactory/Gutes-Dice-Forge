@@ -11,6 +11,7 @@ on:
       - "scripts/api.js"
       - "scripts/main.js"
       - "scripts/integration/genesys-auto-bridge.js"
+      - "scripts/integration/render-chat-capture.js"
       - ".github/workflows/build-stable-package.yml"
 
 permissions:
@@ -37,6 +38,7 @@ jobs:
           cp scripts/api.js build/scripts/api.js
           cp scripts/main.js build/scripts/main.js
           cp scripts/integration/genesys-auto-bridge.js build/scripts/integration/genesys-auto-bridge.js
+          cp scripts/integration/render-chat-capture.js build/scripts/integration/render-chat-capture.js
           (cd build && zip -qr ../genesys-dice-forge.new.zip .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
           cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.5.zip
@@ -46,6 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
+          unzip -l genesys-dice-forge.zip scripts/integration/render-chat-capture.js >/tmp/gdf-files.txt
           python - <<'PY'
           import json
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
@@ -54,6 +57,7 @@ jobs:
           assert manifest['version'] == '0.7.5'
           assert manifest['compatibility']['minimum'] == '13.351'
           assert str(manifest['compatibility']['maximum']) == '14'
+          assert 'scripts/integration/render-chat-capture.js' in manifest['esmodules']
           print('Verified Genesys Dice Forge', manifest['version'])
           PY
 
