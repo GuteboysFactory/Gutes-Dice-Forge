@@ -1,7 +1,7 @@
 {
   "id": "genesys-dice-forge",
   "title": "Genesys Dice Forge",
-  "description": "Dedicated native-WebGL 3D narrative dice module for Genesys. Zero-config automatic Genesys roll capture, premium physical dice, authentic face composition, natural deterministic face-up settling, always-on-top presentation, standalone roll simulator, adaptive audio, Foundry VTT 13.351 and Version 14.",
+  "description": "Dedicated native-WebGL 3D narrative dice module for Genesys. Zero-config automatic Genesys roll capture, rendered-chat fallback, premium physical dice, authentic face composition, natural deterministic face-up settling, always-on-top presentation, standalone roll simulator, adaptive audio, Foundry VTT 13.351 and Version 14.",
   "version": "0.7.5",
   "compatibility": {
     "minimum": "13.351",
@@ -14,7 +14,8 @@
     }
   ],
   "esmodules": [
-    "scripts/main.js"
+    "scripts/main.js",
+    "scripts/integration/render-chat-capture.js"
   ],
   "styles": [
     "styles/dice-forge.css"
