@@ -98,3 +98,5 @@ Stable package URL:
 `https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/genesys-dice-forge.zip`
 
 The repository includes an automated package workflow. Source-overlay changes on `main` rebuild the stable `genesys-dice-forge.zip`, so Foundry installations using the manifest URL can detect newer module versions through normal package updates.
+
+**Current stable target:** v0.7.4.
