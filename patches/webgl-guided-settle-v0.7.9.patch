@@ -1,0 +1,213 @@
+--- a/scripts/render/webgl/webgl-renderer.js
++++ b/scripts/render/webgl/webgl-renderer.js
+@@ -58,7 +58,7 @@
+   maxFrameDelta: 1 / 20,
+   minSimulationMs: 1250,
+   maxSimulationMs: 3050,
+-  settleMs: 320,
++  settleMs: 180,
+   holdMs: 2250,
+   wallRestitution: 0.48,
+   diceRestitution: 0.38
+@@ -120,6 +120,19 @@
+   return ROLL_PROFILES[0];
+ }
+ 
++// v0.7.9 Guided Settle: keep the beginning of every throw fully physical, then
++// bias only the late rolling angular velocity toward the already-authoritative
++// face. The final deterministic settle should therefore be a micro-correction,
++// not a visible last-second twist.
++const GUIDED_SETTLE = Object.freeze({
++  freePhysicsMs: 700,
++  guideLeadMs: 430,
++  maxHorizontalSpeed: 3.40,
++  maxVerticalSpeed: 0.52,
++  sleepFaceAngle: 0.11,
++  graceMs: 380
++});
++
+ // GPU mesh helpers are deliberately kept independent from the rigid-body
+ // state. v0.6.0 accidentally dropped these two constructors during the
+ // physics refactor, which made WebGL initialization fall back to the null
+@@ -397,6 +410,30 @@
+   }
+ }
+ 
++function resultFaceError(entry) {
++  const localNormal = entry.mesh.geometry.faceNormals[entry.die.faceIndex];
++  const worldNormal = quatRotateVec3(entry.rotation, localNormal);
++  const cosAngle = clamp(worldNormal[1], -1, 1);
++  const crossX = worldNormal[2];
++  const crossZ = -worldNormal[0];
++  const crossLength = Math.hypot(crossX, crossZ);
++  const angle = Math.atan2(crossLength, cosAngle);
++
++  if (crossLength >= 0.0001) {
++    return { angle, axisX: crossX / crossLength, axisZ: crossZ / crossLength };
++  }
++
++  // Exactly face-up or face-down has no unique horizontal correction axis.
++  // Reuse the current physical roll axis so the guidance remains a continuation
++  // of the motion the player is already seeing.
++  const fallbackLength = Math.max(0.0001, Math.hypot(entry.angularVelocity[0], entry.angularVelocity[2]));
++  return {
++    angle,
++    axisX: entry.angularVelocity[0] / fallbackLength || 1,
++    axisZ: entry.angularVelocity[2] / fallbackLength || 0
++  };
++}
++
+ function dieIsNearlySleeping(entry, simulationElapsedMs) {
+   if (simulationElapsedMs < entry.delay + 650) return false;
+   // Give the intended right-edge rebound time to happen before considering a
+@@ -409,10 +446,12 @@
+   const horizontal = Math.hypot(entry.velocity[0], entry.velocity[2]);
+   const vertical = Math.abs(entry.velocity[1]);
+   const angular = Math.hypot(entry.angularVelocity[0], entry.angularVelocity[1], entry.angularVelocity[2]);
++  const faceAngle = resultFaceError(entry).angle;
+   return Math.abs(entry.position[1] - floorY) < 0.035
+     && horizontal < 0.34
+     && vertical < 0.18
+-    && angular < 1.35;
++    && angular < 1.35
++    && faceAngle < GUIDED_SETTLE.sleepFaceAngle;
+ }
+ 
+ function buildFaceUpTargetRotation(geometry, faceIndex, currentRotation) {
+@@ -428,40 +467,84 @@
+ }
+ 
+ function guideResultFace(entry, dt, simulationElapsedMs) {
+-  // Once the handful has hit the right rail and is losing energy, apply a
+-  // gentle horizontal torque that encourages the authoritative face toward
+-  // the top while the die is STILL visibly rolling. The final settle then has
+-  // only a few degrees left to correct instead of performing a visible flip.
+-  const railReached = (entry.rightWallHits ?? 0) > 0;
+-  if (!railReached && entry.rollProfile.requireRailForSleep) return;
+-  if (simulationElapsedMs < entry.delay + entry.rollProfile.guideAfterMs) return;
+-  const horizontalSpeed = Math.hypot(entry.velocity[0], entry.velocity[2]);
+-  if (horizontalSpeed > 2.05 || Math.abs(entry.velocity[1]) > 0.24) return;
++  // Preserve the signature free-physics opening. Only once a die has already
++  // hit the table and the throw is entering its late rolling phase do we begin
++  // a progressive, torque-only attraction toward the authoritative result face.
++  // No yaw target is imposed: the die keeps its natural player-facing rotation.
++  if (!entry.firstFloorImpact) return;
++
++  const guideStart = entry.delay + Math.max(
++    GUIDED_SETTLE.freePhysicsMs,
++    entry.rollProfile.guideAfterMs - GUIDED_SETTLE.guideLeadMs
++  );
++  if (simulationElapsedMs < guideStart) return;
+ 
+-  const localNormal = entry.mesh.geometry.faceNormals[entry.die.faceIndex];
+-  const worldNormal = quatRotateVec3(entry.rotation, localNormal);
+-  const cosAngle = clamp(worldNormal[1], -1, 1);
+-  const crossX = worldNormal[2];
+-  const crossZ = -worldNormal[0];
+-  const crossLength = Math.hypot(crossX, crossZ);
+-  const angle = Math.atan2(crossLength, cosAngle);
+-  if (angle < 0.015) return;
++  const horizontalSpeed = Math.hypot(entry.velocity[0], entry.velocity[2]);
++  const verticalSpeed = Math.abs(entry.velocity[1]);
++  if (horizontalSpeed > GUIDED_SETTLE.maxHorizontalSpeed
++    || verticalSpeed > GUIDED_SETTLE.maxVerticalSpeed) return;
+ 
+-  let axisX;
+-  let axisZ;
+-  if (crossLength < 0.0001) {
+-    // Exactly upside-down is ambiguous; use the current rolling direction so
+-    // the correction still looks like continuation of the physical roll.
+-    const fallbackLength = Math.max(0.0001, Math.hypot(entry.angularVelocity[0], entry.angularVelocity[2]));
+-    axisX = entry.angularVelocity[0] / fallbackLength || 1;
+-    axisZ = entry.angularVelocity[2] / fallbackLength || 0;
+-  } else {
+-    axisX = crossX / crossLength;
+-    axisZ = crossZ / crossLength;
+-  }
++  const { angle, axisX, axisZ } = resultFaceError(entry);
++  if (angle < 0.006) return;
+ 
+-  const slowFactor = clamp((2.05 - horizontalSpeed) / 2.05, 0, 1);
+-  const torque = Math.min(7.0, angle * 6.4) * slowFactor;
++  const railReached = (entry.rightWallHits ?? 0) > 0;
++  const timeRamp = clamp((simulationElapsedMs - guideStart) / 700, 0, 1);
++  const energyRamp = clamp(
++    (GUIDED_SETTLE.maxHorizontalSpeed - horizontalSpeed) / GUIDED_SETTLE.maxHorizontalSpeed,
++    0,
++    1
++  );
++  const deadlineRamp = clamp(
++    (simulationElapsedMs - (entry.rollProfile.maxSimulationMs - 650)) / 650,
++    0,
++    1
++  );
++
++  // Rail Rebound keeps only a very weak pre-rail bias so its signature edge hit
++  // still reads naturally. Scatter and Deep Bounce may start guiding a little
++  // earlier because they are allowed to settle without touching the right rail.
++  const pathScale = railReached
++    ? 1
++    : entry.rollProfile.requireRailForSleep ? 0.26 : 0.48;
++  const strength = pathScale
++    * (0.12 + timeRamp * 0.48 + deadlineRamp * 0.40)
++    * (0.22 + energyRamp * 0.78);
++  if (strength <= 0.001) return;
++
++  // Blend angular velocity toward the shortest face-up roll axis instead of
++  // rotating the quaternion directly. This keeps the correction inside the
++  // visible physical motion rather than producing a presentation snap.
++  const targetAngularSpeed = Math.min(
++    7.4,
++    angle * (3.6 + deadlineRamp * 2.6)
++  );
++  const currentAlongAxis = entry.angularVelocity[0] * axisX
++    + entry.angularVelocity[2] * axisZ;
++  const velocityBlend = clamp(dt * (1.4 + strength * 4.2), 0, 0.12);
++  const angularCorrection = (targetAngularSpeed - currentAlongAxis)
++    * velocityBlend
++    * strength;
++  entry.angularVelocity[0] += axisX * angularCorrection;
++  entry.angularVelocity[2] += axisZ * angularCorrection;
++
++  // Remove only a small amount of sideways tumble that fights the target roll.
++  // Vertical-axis spin is intentionally untouched so every die retains natural
++  // yaw and the three motion profiles remain visibly distinct.
++  const perpX = -axisZ;
++  const perpZ = axisX;
++  const perpendicularSpeed = entry.angularVelocity[0] * perpX
++    + entry.angularVelocity[2] * perpZ;
++  const perpendicularDamping = clamp(dt * (0.18 + strength * 0.85), 0, 0.035);
++  entry.angularVelocity[0] -= perpX * perpendicularSpeed * perpendicularDamping;
++  entry.angularVelocity[2] -= perpZ * perpendicularSpeed * perpendicularDamping;
++
++  // A smooth late torque closes the remaining angle before the die appears to
++  // stop. Near the profile deadline the assistance rises, but only while the
++  // die is still in the physics phase.
++  const torque = Math.min(
++    9.0,
++    angle * (4.8 + deadlineRamp * 3.0)
++  ) * strength;
+   entry.angularVelocity[0] += axisX * torque * dt;
+   entry.angularVelocity[2] += axisZ * torque * dt;
+ }
+@@ -764,7 +847,11 @@
+ 
+           const allSleeping = elapsed >= PHYSICS.minSimulationMs
+             && this.activeDice.every((entry) => dieIsNearlySleeping(entry, elapsed));
+-          if (allSleeping || elapsed >= rollProfile.maxSimulationMs) beginSettle(now);
++          // Do not cut directly from free rotation into a large deterministic
++          // correction at the old hard timeout. Give Guided Settle a brief
++          // physics-only grace period to finish orienting the result naturally.
++          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;
++          if (allSleeping || guidanceGraceExpired) beginSettle(now);
+         } else if (phase === "settle") {
+           const t = clamp((now - settleStart) / PHYSICS.settleMs);
+           const eased = smoothstep(0, 1, t);
+@@ -810,6 +897,7 @@
+               rightRailRebound: rollProfile.id === "rail-rebound",
+               motionProfile: rollProfile.id,
+               deterministicFaces: true,
++              guidedSettle: true,
+               playerReadableTopFaces: true
+             });
+             return;
