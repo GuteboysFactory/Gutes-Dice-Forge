@@ -7,6 +7,14 @@ const FACE_PATTERNS = [
   new RegExp(`\\b${LABELS}\\s*(?:Die\\s*)?(?:Face|Result)\\s*#?\\s*(\\d{1,2})\\b`, "gi")
 ];
 
+function sharedCaptureState() {
+  const key = "__GENESYS_DICE_FORGE_CAPTURE_STATE__";
+  if (!globalThis[key]) {
+    globalThis[key] = { messageIds: new Set(), fingerprints: new Map() };
+  }
+  return globalThis[key];
+}
+
 function normalizeType(value) {
   const text = String(value ?? "").toLowerCase().replace(/[^a-z]/g, "");
   return TYPES.find((type) => text === type || text.includes(type)) ?? null;
@@ -37,7 +45,8 @@ function parseFaceText(text) {
 
 function parseDataAttributes(root) {
   const dice = [];
-  const nodes = [root, ...root.querySelectorAll?.("*") ?? []];
+  const descendants = root.querySelectorAll ? Array.from(root.querySelectorAll("*")) : [];
+  const nodes = [root, ...descendants];
   for (const el of nodes) {
     if (!el?.getAttribute) continue;
     const type = normalizeType(
@@ -84,8 +93,6 @@ function isGenesysWorld() {
   return id.includes("genesys") || title.includes("genesys");
 }
 
-const seen = new Set();
-
 async function inspectRenderedMessage(message, html, phase = "renderChatMessageHTML") {
   if (!isGenesysWorld() || message?.flags?.[MODULE_ID]?.simulator) return;
   const api = globalThis.GenesysDiceForge;
@@ -93,7 +100,8 @@ async function inspectRenderedMessage(message, html, phase = "renderChatMessageH
 
   const dice = parseRenderedHtml(html);
   const messageId = String(message?.id ?? message?._id ?? "unknown");
-  const fingerprint = `${messageId}:${dice.map((die) => `${die.type}:${die.faceIndex}`).join("|")}`;
+  const fingerprint = `${messageId}::${dice.map((die) => `${die.type}:${die.faceIndex}`).join("|")}`;
+  const shared = sharedCaptureState();
 
   if (!dice.length) {
     if (game.settings.get(MODULE_ID, "debug")) {
@@ -105,9 +113,19 @@ async function inspectRenderedMessage(message, html, phase = "renderChatMessageH
     }
     return;
   }
-  if (seen.has(fingerprint)) return;
-  seen.add(fingerprint);
-  if (seen.size > 300) seen.delete(seen.values().next().value);
+
+  // If the raw ChatMessage path already captured this message, or this rendered
+  // path has already handled the same physical result, do not replay it.
+  if (shared.messageIds.has(messageId)) return;
+  const recent = shared.fingerprints.get(fingerprint);
+  if (recent && Date.now() - recent < 2000) return;
+
+  // Mark before awaiting animation so the deferred second render inspection and
+  // other capture paths cannot start a duplicate roll concurrently.
+  shared.messageIds.add(messageId);
+  shared.fingerprints.set(fingerprint, Date.now());
+  if (shared.messageIds.size > 300) shared.messageIds.delete(shared.messageIds.values().next().value);
+  if (shared.fingerprints.size > 300) shared.fingerprints.delete(shared.fingerprints.keys().next().value);
 
   const payload = {
     rollId: `render-${messageId}`,
@@ -139,9 +157,8 @@ Hooks.once("ready", () => {
   // renderChatMessage hook that Foundry warns will be removed in v15.
   Hooks.on("renderChatMessageHTML", (message, html) => {
     void inspectRenderedMessage(message, html, "renderChatMessageHTML");
-    // Some systems/modules decorate the final card during the same render cycle.
     globalThis.setTimeout(() => void inspectRenderedMessage(message, html, "renderChatMessageHTML+deferred"), 0);
   });
 
-  console.info("[Genesys Dice Forge] v0.7.5 rendered-chat capture installed using renderChatMessageHTML (Foundry v13/v14).");
+  console.info("[Genesys Dice Forge] v0.7.5 rendered-chat capture installed using renderChatMessageHTML (Foundry v13/v14, shared dedupe active).");
 });
