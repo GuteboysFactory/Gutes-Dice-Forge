@@ -15,6 +15,20 @@ function simulatorEnabled() {
   }
 }
 
+function findMessageInput() {
+  return document.querySelector(
+    "#chat-message, textarea[name='message'], textarea[placeholder*='Enter'], [contenteditable='true'][data-placeholder*='message']"
+  );
+}
+
+function isVisibleNearInput(button, inputRect) {
+  if (!(button instanceof HTMLElement)) return false;
+  const rect = button.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return false;
+  const centerY = rect.top + rect.height / 2;
+  return centerY >= inputRect.top - 125 && centerY <= inputRect.top + 24;
+}
+
 function isRollModeButton(button) {
   if (!(button instanceof HTMLElement)) return false;
   const text = `${button.title ?? ""} ${button.getAttribute("aria-label") ?? ""} ${button.dataset?.action ?? ""}`.toLowerCase();
@@ -24,44 +38,75 @@ function isRollModeButton(button) {
   ));
 }
 
-function findChatScope() {
-  const messageInput = document.querySelector(
-    "#chat-message, textarea[name='message'], textarea[placeholder*='Enter'], [contenteditable='true'][data-placeholder*='message']"
-  );
-  if (!messageInput) return document.querySelector("#chat, [data-tab='chat'], .chat-log") ?? null;
-
-  return messageInput.closest(
-    "#chat-form, form, #chat, [data-tab='chat'], .chat-log, [class*='chat-form'], [class*='chat-input']"
-  ) ?? messageInput.parentElement?.parentElement ?? null;
+function isChatUtilityButton(button) {
+  if (!(button instanceof HTMLElement)) return false;
+  const text = `${button.title ?? ""} ${button.getAttribute("aria-label") ?? ""} ${button.dataset?.action ?? ""}`.toLowerCase();
+  if (/save|export|download|clear|delete|trash|flush/.test(text)) return true;
+  return Boolean(button.querySelector(
+    ".fa-floppy-disk, .fa-save, .fa-download, .fa-trash, .fa-trash-can, .fa-eraser"
+  ));
 }
 
-function findRollModeGroup() {
+function findChatScope() {
+  const input = findMessageInput();
+  if (!input) return document.querySelector("#chat, [data-tab='chat'], .chat-log") ?? null;
+
+  // v0.7.7 stopped at the nearest <form>, which is often only the message box.
+  // The toolbar in Foundry v13/v14 is a sibling above that form, so search for
+  // a real chat container first and only use a wider ancestor as fallback.
+  const explicit = input.closest(
+    "#chat, [data-tab='chat'], .sidebar-tab[data-tab='chat'], .chat-sidebar, [class*='chat-log'], [class*='chat-content']"
+  );
+  if (explicit) return explicit;
+
+  let node = input.parentElement;
+  for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+    if (node.querySelectorAll?.("button").length >= 4) return node;
+  }
+  return input.parentElement?.parentElement ?? null;
+}
+
+function nearbyToolbarButtons(scope) {
+  if (!scope) return [];
+  const input = findMessageInput();
+  const buttons = Array.from(scope.querySelectorAll("button"));
+  if (!input) return buttons;
+  const inputRect = input.getBoundingClientRect();
+  return buttons.filter((button) => isVisibleNearInput(button, inputRect));
+}
+
+function findPlacement() {
   const scope = findChatScope();
   if (!scope) return null;
 
-  const buttons = Array.from(scope.querySelectorAll("button"));
+  const buttons = nearbyToolbarButtons(scope);
+
+  // Preferred placement from the approved screenshot: immediately BEFORE the
+  // Save/Delete controls on the right side of the chat toolbar.
+  const utilityButtons = buttons
+    .filter(isChatUtilityButton)
+    .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  if (utilityButtons.length) {
+    const firstUtility = utilityButtons[0];
+    const parent = firstUtility.parentElement;
+    if (parent) return { parent, before: firstUtility, mode: "before-utilities" };
+  }
+
+  // Fallback: attach immediately after the roll-visibility controls. This keeps
+  // the launcher inside the same bottom toolbar even on alternate Foundry skins.
   const rollButtons = buttons.filter(isRollModeButton);
   if (rollButtons.length) {
     const parents = new Map();
     for (const button of rollButtons) {
-      let node = button.parentElement;
-      for (let depth = 0; node && depth < 3; depth += 1, node = node.parentElement) {
-        if (!scope.contains(node)) break;
-        const count = Array.from(node.querySelectorAll(":scope > button, :scope > * > button")).filter(isRollModeButton).length;
-        const previous = parents.get(node) ?? 0;
-        parents.set(node, Math.max(previous, count));
-      }
+      const parent = button.parentElement;
+      if (!parent) continue;
+      parents.set(parent, (parents.get(parent) ?? 0) + 1);
     }
-    const best = Array.from(parents.entries())
-      .filter(([, count]) => count >= 2)
-      .sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (best) return best;
-    return rollButtons[rollButtons.length - 1].parentElement;
+    const best = Array.from(parents.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (best) return { parent: best, before: null, mode: "after-rolls" };
   }
 
-  return scope.querySelector(
-    "#chat-controls, .chat-controls, [class*='roll-mode'], [class*='rollmode'], [data-role='roll-mode']"
-  );
+  return null;
 }
 
 function createLauncher() {
@@ -89,20 +134,44 @@ function createLauncher() {
 
 function mountLauncher() {
   const legacy = document.querySelector(LEGACY_SELECTOR);
-  if (legacy instanceof HTMLElement) legacy.classList.add("gdf-integrated-launcher-source");
 
   if (!simulatorEnabled()) {
     launcher?.remove();
     launcher = null;
+    legacy?.classList?.remove("gdf-integrated-launcher-source");
     return false;
   }
 
-  const group = findRollModeGroup();
-  if (!group) return false;
+  const placement = findPlacement();
+  if (!placement) {
+    // Never hide the working legacy launcher unless the integrated replacement
+    // has actually mounted. This was the v0.7.11 missing-icon failure mode.
+    legacy?.classList?.remove("gdf-integrated-launcher-source");
+    return false;
+  }
 
   if (!launcher || !launcher.isConnected) launcher = createLauncher();
-  if (launcher.parentElement !== group) group.appendChild(launcher);
-  return true;
+  launcher.classList.toggle("gdf-before-utilities", placement.mode === "before-utilities");
+  launcher.classList.toggle("gdf-after-rolls", placement.mode === "after-rolls");
+
+  if (placement.before) {
+    if (launcher.parentElement !== placement.parent || launcher.nextElementSibling !== placement.before) {
+      placement.parent.insertBefore(launcher, placement.before);
+    }
+  } else if (launcher.parentElement !== placement.parent) {
+    placement.parent.appendChild(launcher);
+  }
+
+  // Hide the old floating trigger ONLY after the new toolbar icon is in DOM.
+  if (launcher.isConnected) legacy?.classList?.add("gdf-integrated-launcher-source");
+
+  if (game.settings.get(MODULE_ID, "debug")) {
+    console.debug(`[Genesys Dice Forge] Chat launcher mounted: ${placement.mode}.`, {
+      parent: placement.parent,
+      before: placement.before
+    });
+  }
+  return launcher.isConnected;
 }
 
 function positionPanel() {
@@ -151,7 +220,7 @@ Hooks.once("ready", () => {
     resizeHandlerInstalled = true;
   }
 
-  console.info("[Genesys Dice Forge] v0.7.7 chat-toolbar launcher active (Foundry v13/v14).");
+  console.info("[Genesys Dice Forge] v0.7.12 chat-toolbar launcher active: preferred mount before Save/Delete controls (Foundry v13/v14).");
 });
 
 Hooks.once("shutdown", () => {
@@ -159,6 +228,7 @@ Hooks.once("shutdown", () => {
   observer = null;
   launcher?.remove();
   launcher = null;
+  document.querySelector(LEGACY_SELECTOR)?.classList?.remove("gdf-integrated-launcher-source");
   if (resizeHandlerInstalled) {
     window.removeEventListener("resize", positionPanel);
     resizeHandlerInstalled = false;
