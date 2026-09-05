@@ -63,7 +63,8 @@ jobs:
           path = Path('build/scripts/render/webgl/webgl-renderer.js')
           source = path.read_text(encoding='utf-8')
 
-          # Preserve the approved v0.7.10/v0.7.11 no-final-twist baseline.
+          # Historical transforms are retained so a clean rebuild from an older
+          # stable package still converges on the approved no-final-twist baseline.
           transforms = [
               ('  sleepFaceAngle: 0.11,\n  graceMs: 380', '  sleepFaceAngle: 0.025,\n  graceMs: 1200'),
               ('  const targetAngularSpeed = Math.min(\n    7.4,\n    angle * (3.6 + deadlineRamp * 2.6)\n  );', '  const targetAngularSpeed = Math.min(\n    8.8,\n    angle * (4.0 + deadlineRamp * 3.4)\n  );'),
@@ -86,9 +87,8 @@ jobs:
           if 'const eased = 0;' not in source:
               raise SystemExit('Missing zero-rotation settle guard')
 
-          # v0.7.14 deterministic face landing. Do this with exact source
-          # transforms rather than a line-number-sensitive patch file.
-          if 'v0.7.14 deterministic landing recovery' not in source:
+          # If rebuilding from pre-v0.7.14, first install its deterministic recovery.
+          if 'v0.7.14 deterministic landing recovery' not in source and 'v0.7.15 bounded deterministic landing recovery' not in source:
               constants_old = '''  sleepFaceAngle: 0.025,\n  graceMs: 1200\n});'''
               constants_new = '''  sleepFaceAngle: 0.025,\n  graceMs: 1200,\n  hardAssistStartMs: 350,\n  hardAssistRate: 5.4,\n  hardAssistMaxStep: 0.10,\n  absoluteSafetyMs: 5200\n});'''
               if constants_old not in source:
@@ -107,6 +107,29 @@ jobs:
                   raise SystemExit('Missing physics-to-settle transition target for v0.7.14')
               source = source.replace(transition_old, transition_new, 1)
 
+          # v0.7.15: v0.7.14 could keep feeding angular energy while waiting for
+          # an extremely tight face angle, causing a die to visibly freak out.
+          # Bound recovery, damp the assisted roll, and guarantee termination with
+          # at most a tiny in-motion face correction before hold.
+          if 'v0.7.15 bounded deterministic landing recovery' not in source:
+              old_constants = '''  hardAssistStartMs: 350,\n  hardAssistRate: 5.4,\n  hardAssistMaxStep: 0.10,\n  absoluteSafetyMs: 5200'''
+              new_constants = '''  hardAssistStartMs: 350,\n  hardAssistRate: 6.2,\n  hardAssistMaxStep: 0.12,\n  settleFaceAngle: 0.055,\n  hardStopMs: 4700'''
+              if old_constants not in source:
+                  raise SystemExit('Missing v0.7.14 recovery constants for v0.7.15')
+              source = source.replace(old_constants, new_constants, 1)
+
+              old_recovery = '''  // v0.7.14 deterministic landing recovery. Once the normal roll is already\n  // deep into its late-energy phase, blend the CURRENT physical orientation a\n  // tiny amount toward the shortest face-up orientation each physics substep.\n  // This stays inside the physics phase so hold/fade never perform a final snap.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.sleepFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 900, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.45 + overtime * 0.55),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const minRoll = 0.34 + overtime * 0.16;\n    entry.angularVelocity[0] += axisX * minRoll * dt;\n    entry.angularVelocity[2] += axisZ * minRoll * dt;\n  }'''
+              new_recovery = '''  // v0.7.15 bounded deterministic landing recovery. Keep the correction inside\n  // the visible physics phase, but remove energy as we converge so the die cannot\n  // enter a perpetual assisted wobble/spin while chasing the exact face angle.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.settleFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 850, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.55 + overtime * 0.45),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const damping = Math.pow(0.20, dt);\n    entry.angularVelocity[0] *= damping;\n    entry.angularVelocity[2] *= damping;\n    entry.velocity[0] *= Math.pow(0.30, dt);\n    entry.velocity[2] *= Math.pow(0.30, dt);\n  }'''
+              if old_recovery not in source:
+                  raise SystemExit('Missing v0.7.14 recovery block for v0.7.15')
+              source = source.replace(old_recovery, new_recovery, 1)
+
+              old_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const absoluteSafetyExpired = elapsed >= GUIDED_SETTLE.absoluteSafetyMs;\n\n          // Never enter hold with the wrong physical face merely because a timer\n          // expired. The authoritative face must be acquired during motion first.\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || (absoluteSafetyExpired && facesReady)) beginSettle(now);'''
+              new_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          let facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.settleFaceAngle);\n          const hardStopExpired = elapsed >= GUIDED_SETTLE.hardStopMs;\n\n          if (hardStopExpired && !facesReady) {\n            for (const entry of this.activeDice) {\n              const error = resultFaceError(entry);\n              if (error.angle >= GUIDED_SETTLE.settleFaceAngle) {\n                // Safety correction is still made before settle/hold begins. By\n                // this point velocity has already been heavily damped, so this is\n                // a bounded few-degree acquisition rather than a late wild spin.\n                entry.rotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n                entry.angularVelocity[0] = 0;\n                entry.angularVelocity[2] = 0;\n              }\n            }\n            facesReady = true;\n          }\n\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || hardStopExpired) beginSettle(now);'''
+              if old_transition not in source:
+                  raise SystemExit('Missing v0.7.14 transition block for v0.7.15')
+              source = source.replace(old_transition, new_transition, 1)
+
           path.write_text(source, encoding='utf-8')
           PY
 
@@ -115,14 +138,14 @@ jobs:
           node --check build/scripts/integration/face-audit.js
           grep -q 'before-utilities' build/scripts/integration/chat-launcher.js
           grep -q '52-FACE VISUAL QA' build/scripts/integration/face-audit.js
-          grep -q 'v0.7.14 deterministic landing recovery' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'absoluteSafetyMs: 5200' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'absoluteSafetyExpired && facesReady' build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'v0.7.15 bounded deterministic landing recovery' build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'settleFaceAngle: 0.055' build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'hardStopMs: 4700' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'const eased = 0;' build/scripts/render/webgl/webgl-renderer.js
 
           (cd build && zip -qr ../genesys-dice-forge.new.zip .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
-          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.14.zip
+          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.15.zip
 
       - name: Verify package manifest
         shell: bash
@@ -134,7 +157,7 @@ jobs:
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
               manifest = json.load(f)
           assert manifest['id'] == 'genesys-dice-forge'
-          assert manifest['version'] == '0.7.14'
+          assert manifest['version'] == '0.7.15'
           assert manifest['compatibility']['minimum'] == '13.351'
           assert str(manifest['compatibility']['maximum']) == '14'
           assert 'scripts/integration/chat-launcher.js' in manifest['esmodules']
@@ -148,12 +171,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.14.zip; then
+          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.15.zip; then
             echo "Stable package already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.14.zip
-          git commit -m "Build stable Genesys Dice Forge v0.7.14 package"
+          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.15.zip
+          git commit -m "Build stable Genesys Dice Forge v0.7.15 package"
           git push
