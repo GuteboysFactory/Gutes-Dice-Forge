@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.5";
+    return "0.7.6";
   }
 
   get capabilities() {
@@ -39,6 +39,7 @@ export class GenesysDiceForgeAPI {
       systemRollPresentation: true,
       automaticSystemBridge: true,
       zeroConfigAutoCapture: true,
+      sharedCaptureDeduplication: true,
       alwaysOnTopPresentation: true,
       standaloneRollSimulator: true,
       audio: this.#audioEngine?.capabilities ?? null,
