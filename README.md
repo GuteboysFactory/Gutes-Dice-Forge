@@ -1,23 +1,38 @@
 # Genesys Dice Forge
 
-> **v0.7.4 Zero-Config Auto Capture:** when the module is active in a Genesys world, Dice Forge automatically looks for the already-resolved physical dice in Foundry chat data, roll terms, common Genesys hooks, data attributes, and rolled-face text such as `Ability #7`. No Genesys VTT patch or bridge registration is required when the system publishes per-die face information.
+> **v0.9.0 Release Candidate:** Genesys Dice Forge is feature-complete on the approved Foundry VTT 13.351 baseline. Version 14 compatibility is declared and statically guarded, but not runtime-verified until a real v14 environment is available.
 
 Dedicated 3D narrative dice presentation for Genesys.
 
-**Target:** Foundry VTT 13.351 and Version 14.
+**Verified runtime:** Foundry VTT 13.351.  
+**Declared compatibility:** Foundry VTT 14.x, runtime QA deferred.
 
 The Genesys rules engine remains authoritative. Dice Forge receives or recovers the exact die types and zero-based `faceIndex` values and only presents those outcomes visually.
 
-## v0.7.4 - Zero-Config Auto Capture
+## Current release-candidate baseline
 
-- Module activation is the only required integration step in a Genesys world.
-- Automatic capture inspects Foundry ChatMessage flags, native roll terms, common Genesys resolved-roll hooks, `data-die-type` / `data-face-index` markup, and semantic rolled-face text.
-- Existing Genesys chat-card forms such as `Ability #7` and `Difficulty #3` can be converted back to exact physical die type + face index without re-rolling.
-- Adds `updateChatMessage` fallback for systems that attach roll details immediately after message creation.
-- Adds duplicate suppression across hooks/chat updates without suppressing later legitimate rolls.
-- Legacy system-presentation and auto-bridge toggles are hidden and no longer gate presentation.
-- Dice Forge remains presentation-only and never re-rolls a captured system result.
-- GOLD adaptive audio, premium dice artwork, face distributions and table-roll physics are unchanged.
+- Zero-config automatic Genesys roll capture.
+- Rendered-chat fallback using Foundry's modern `renderChatMessageHTML` hook.
+- Shared deduplication so the same resolved roll is not animated twice.
+- Integrated chat-toolbar Dice Forge launcher positioned before Foundry chat utilities when available.
+- Three randomized physical roll profiles: Rail Rebound, Scatter Roll and Deep Bounce.
+- Natural rigid-body landing with authoritative top-face artwork remapping.
+- Premium d6/d8/d12 narrative dice with all 52 audited physical face definitions.
+- GOLD adaptive dice audio.
+- Standalone Genesys pool simulator.
+- Deterministic 52-face visual QA cycler in Debug Mode.
+- Always-on-top, click-through presentation layer.
+
+## Result presentation architecture
+
+Dice Forge no longer forces the rigid body toward a predetermined physical polygon. Each die completes its physical roll naturally. Once the die has settled, Dice Forge identifies the polygon that naturally ended up on top and maps the authoritative Genesys result artwork to that visible top face.
+
+This keeps the important separation intact:
+
+- **Genesys owns:** pool construction, RNG, symbol totals, cancellation and rules resolution.
+- **Dice Forge owns:** visual presentation, physical motion, artwork, audio and capture.
+
+**Rules != Physics.** The game result is authoritative; the physical simulation is presentation-only.
 
 ## Premium dice target
 
@@ -27,12 +42,12 @@ The Genesys rules engine remains authoritative. Dice Forge receives or recovers 
 - Difficulty d8: purple body, light glyphs.
 - Proficiency d12: yellow body, black glyphs.
 - Challenge d12: red body, high-contrast glyphs.
-- Blank, single, double and mixed-result faces follow the authentic narrative-dice distribution.
-- The six locked glyph silhouettes remain Success, Advantage, Triumph, Failure, Threat and Despair.
+- Blank, single, double and mixed-result faces follow the audited narrative-dice distribution.
+- The six locked glyph silhouettes are Success, Advantage, Triumph, Failure, Threat and Despair.
 
 ## Standalone roll simulator
 
-Enable **Module Settings -> Genesys Dice Forge -> Show Dice Forge Roller**. The **DICE FORGE** button opens a pool builder that works independently of the game system.
+Enable **Module Settings -> Genesys Dice Forge -> Show Dice Forge Roller**. The integrated Dice Forge chat icon opens a pool builder that works independently of the game system.
 
 ```js
 const forge = game.modules.get("genesys-dice-forge")?.api;
@@ -64,39 +79,38 @@ await game.modules.get("genesys-dice-forge")?.api?.presentResolvedSystemRoll({
 });
 ```
 
-Dice Forge displays exactly those dice and settles them on exactly those faces.
+Dice Forge presents exactly those authoritative die results; it does not reroll them.
 
 ## QA
 
-Enable **Module Settings -> Genesys Dice Forge -> QA / Debug Mode** for the local **TEST DICE** button and console diagnostics.
+Enable **Module Settings -> Genesys Dice Forge -> QA / Debug Mode** for the local **TEST DICE** control, deterministic **FACE QA** cycler and console diagnostics.
 
-Check that:
+Current release-candidate checks cover:
 
-1. Dice appear above Foundry application windows.
-2. Dice enter from the left as a loose handful and use the desktop as a virtual tabletop.
-3. Dice bounce, collide, lose energy and rebound from the right boundary.
-4. Final result faces are physically upward and readable.
-5. The full pool count and exact die types are shown.
-6. Adaptive audio varies naturally between rolls.
-7. A normal Genesys chat roll automatically triggers Dice Forge when exact physical faces can be recovered.
-8. No Foundry canvas/PIXI interference occurs on v13.351 or v14.
+1. Exact 52-face narrative inventory.
+2. JavaScript syntax for all packaged module scripts.
+3. Manifest/API version consistency.
+4. Manifest-referenced modules and styles exist.
+5. Deprecated `renderChatMessage` is rejected; `renderChatMessageHTML` is required.
+6. Approved natural-landing architecture remains present.
+7. Old target-face guidance and final `targetRotation` snap are rejected if reintroduced.
+8. Stable ZIP integrity is validated after packaging.
 
-## Architecture
-
-Dice Forge is presentation-only. The game system owns pool construction, RNG, symbol totals and rules resolution. Dice Forge owns WebGL rendering, premium artwork, adaptive audio, deterministic final-face presentation and zero-config capture.
-
-The physical simulation is not gameplay-authoritative. Real-looking movement evolves freely; only after kinetic energy is low does a short settle phase orient each die to the already-resolved result. **Rules != Physics.**
+Foundry v14 remains a deferred runtime smoke test. When a v14 environment is available, the intended pass is: install/load -> launcher -> simulator -> Genesys auto-capture -> 3D rendering -> audio -> console regression.
 
 ## GitHub / Foundry automatic updates
 
 Repository: https://github.com/GuteboysFactory/Gutes-Dice-Forge
 
-Foundry manifest URL:
+Foundry manifest URL:  
 `https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/module.json`
 
-Stable package URL:
+Stable package URL:  
 `https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/genesys-dice-forge.zip`
 
-The repository includes an automated package workflow. Source-overlay changes on `main` rebuild the stable `genesys-dice-forge.zip`, so Foundry installations using the manifest URL can detect newer module versions through normal package updates.
+Versioned v0.9.0 package:  
+`https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/dist/genesys-dice-forge-v0.9.0.zip`
 
-**Current stable target:** v0.7.4.
+The repository's stable package workflow rebuilds from the approved packaged runtime, overlays first-class repository sources, runs hardening checks, verifies the archive and publishes the current stable ZIP.
+
+**Current stable target:** v0.9.0 release candidate.
