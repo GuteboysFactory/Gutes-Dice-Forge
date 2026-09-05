@@ -1,5 +1,14 @@
 # Genesys Dice Forge Changelog
 
+## 0.9.0 - Release Candidate
+
+- Promotes the feature-complete v0.8.0 baseline to release-candidate status without intentionally changing renderer physics, dice artwork, audio, capture behavior or launcher placement.
+- Keeps Foundry VTT 13.351 as the verified runtime baseline.
+- Keeps Foundry VTT 14 declared compatible but explicitly marks runtime verification as deferred until a real v14 environment is available.
+- Adds release-candidate capability metadata and a `foundry14RuntimeVerified: false` flag to make the current support state explicit.
+- Refreshes README architecture and QA documentation to match the approved natural-landing + authoritative top-face artwork-remap design.
+- Keeps the hardened stable-package workflow as the canonical build path.
+
 ## 0.8.0 - Feature Complete Baseline
 
 - Promotes the approved v0.7.17 runtime to the feature-complete baseline.
