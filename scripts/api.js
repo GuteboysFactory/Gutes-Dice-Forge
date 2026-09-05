@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.8";
+    return "0.7.9";
   }
 
   get capabilities() {
