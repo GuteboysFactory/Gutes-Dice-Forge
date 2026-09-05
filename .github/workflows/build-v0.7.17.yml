@@ -1,0 +1,160 @@
+name: Build Dice Forge v0.7.17 Natural Landing Face Remap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-v0.7.17.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build v0.7.17 from stable v0.7.16 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf remap-build
+          mkdir -p remap-build
+          unzip -q genesys-dice-forge.zip -d remap-build
+
+          cp module.json remap-build/module.json
+          cp scripts/api.js remap-build/scripts/api.js
+          cp scripts/main.js remap-build/scripts/main.js
+          cp scripts/integration/genesys-auto-bridge.js remap-build/scripts/integration/genesys-auto-bridge.js
+          cp scripts/integration/render-chat-capture.js remap-build/scripts/integration/render-chat-capture.js
+          cp scripts/integration/chat-launcher.js remap-build/scripts/integration/chat-launcher.js
+          cp scripts/integration/face-audit.js remap-build/scripts/integration/face-audit.js
+          cp styles/chat-launcher.css remap-build/styles/chat-launcher.css
+          cp styles/face-audit.css remap-build/styles/face-audit.css
+
+          python - <<'PY'
+          from pathlib import Path
+
+          rpath = Path('remap-build/scripts/render/webgl/webgl-renderer.js')
+          spath = Path('remap-build/scripts/render/webgl/shaders.js')
+          source = rpath.read_text(encoding='utf-8')
+          shader = spath.read_text(encoding='utf-8')
+
+          if 'v0.7.16 smooth deterministic face acquisition' not in source:
+              raise SystemExit('Expected v0.7.16 renderer marker was not found')
+
+          # Architecture change: the rigid body now lands naturally. We determine
+          # whichever physical polygon actually ends up on top and swap only its
+          # artwork atlas tile with the authoritative Genesys face. Result data is
+          # untouched and the mesh never has to chase a target orientation.
+          anchor = '''function dieIsNearlySleeping(entry, simulationElapsedMs) {'''
+          helper = '''function topPhysicalFaceIndex(entry) {\n  let bestIndex = 0;\n  let bestY = -Infinity;\n  const normals = entry.mesh.geometry.faceNormals;\n  for (let i = 0; i < normals.length; i += 1) {\n    const worldNormal = quatRotateVec3(entry.rotation, normals[i]);\n    if (worldNormal[1] > bestY) {\n      bestY = worldNormal[1];\n      bestIndex = i;\n    }\n  }\n  return bestIndex;\n}\n\nfunction dieIsNearlySleeping(entry, simulationElapsedMs) {'''
+          if anchor not in source:
+              raise SystemExit('Missing dieIsNearlySleeping anchor')
+          source = source.replace(anchor, helper, 1)
+
+          old_sleep = '''  const faceAngle = resultFaceError(entry).angle;\n  return Math.abs(entry.position[1] - floorY) < 0.035\n    && horizontal < 0.34\n    && vertical < 0.18\n    && angular < 1.35\n    && faceAngle < GUIDED_SETTLE.sleepFaceAngle;'''
+          new_sleep = '''  return Math.abs(entry.position[1] - floorY) < 0.035\n    && horizontal < 0.34\n    && vertical < 0.18\n    && angular < 1.35;'''
+          if old_sleep not in source:
+              raise SystemExit('Missing face-gated sleep block')
+          source = source.replace(old_sleep, new_sleep, 1)
+
+          # Kill the target-face attractor completely. This is the source of the
+          # endless terminal spin seen in v0.7.14/v0.7.16.
+          guide_call = '  guideResultFace(entry, dt, simulationElapsedMs);'
+          if guide_call not in source:
+              raise SystemExit('Missing guideResultFace call')
+          source = source.replace(guide_call, '  // v0.7.17: natural landing; no target-face torque or quaternion assist.', 1)
+
+          old_begin = '''          entry.settleFromRotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n          entry.settleFromPosition = [...entry.position];\n          entry.targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.settleFromRotation);\n          const finalY = restingHeight(entry.mesh.geometry, entry.targetRotation, entry.scale);\n          entry.finalPosition = [entry.position[0], finalY, entry.position[2]];'''
+          new_begin = '''          entry.settleFromRotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n          entry.settleFromPosition = [...entry.position];\n          entry.targetRotation = entry.settleFromRotation;\n          entry.displayTopFaceIndex = topPhysicalFaceIndex(entry);\n          const finalY = restingHeight(entry.mesh.geometry, entry.settleFromRotation, entry.scale);\n          entry.finalPosition = [entry.position[0], finalY, entry.position[2]];'''
+          if old_begin not in source:
+              raise SystemExit('Missing beginSettle target rotation block')
+          source = source.replace(old_begin, new_begin, 1)
+
+          old_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.settleFaceAngle);\n          const hardStopExpired = elapsed >= GUIDED_SETTLE.hardStopMs;\n\n          // v0.7.16: never assign targetRotation here. That one-frame safety\n          // acquisition was the visible end jerk in v0.7.15. If the normal grace\n          // window has elapsed, keep the damped terminal assist running until the\n          // authoritative face is genuinely acquired, with hardStop only acting\n          // as a diagnostic deadline rather than a forced presentation snap.\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady)) beginSettle(now);\n          else if (hardStopExpired && facesReady) beginSettle(now);'''
+          new_transition = '''          const naturalTimeout = elapsed >= rollProfile.maxSimulationMs + 700;\n\n          // v0.7.17: settle based only on physical energy/time. The authoritative\n          // Genesys result is mapped onto the polygon that naturally landed up.\n          if (allSleeping || naturalTimeout) beginSettle(now);'''
+          if old_transition not in source:
+              raise SystemExit('Missing v0.7.16 transition block')
+          source = source.replace(old_transition, new_transition, 1)
+
+          # Per-entry top face is passed to the shader. If natural top already is
+          # the authoritative geometry face, the swap is a no-op.
+          old_uniform = '''    gl.uniform1f(uniformLocation(gl, dieProgram, "uTargetFaceIndex"), state.die.faceIndex);'''
+          new_uniform = '''    gl.uniform1f(uniformLocation(gl, dieProgram, "uTargetFaceIndex"), state.die.faceIndex);\n    gl.uniform1f(uniformLocation(gl, dieProgram, "uDisplayTopFaceIndex"), state.displayTopFaceIndex ?? state.die.faceIndex);\n    gl.uniform1f(uniformLocation(gl, dieProgram, "uAuthoritativeFaceIndex"), state.die.faceIndex);'''
+          if old_uniform not in source:
+              raise SystemExit('Missing renderer target face uniform')
+          source = source.replace(old_uniform, new_uniform, 1)
+
+          # Avoid the old extra line-glow being drawn on the authoritative geometry
+          # face if its artwork has been remapped to another physical polygon.
+          old_signature = '''    const hasSignature = visibleSpecials.includes("triumph") || visibleSpecials.includes("despair");'''
+          new_signature = '''    const signatureResult = visibleSpecials.includes("triumph") || visibleSpecials.includes("despair");\n    const hasSignature = signatureResult && (state.displayTopFaceIndex ?? state.die.faceIndex) === state.die.faceIndex;'''
+          if old_signature not in source:
+              raise SystemExit('Missing signature visibility block')
+          source = source.replace(old_signature, new_signature, 1)
+
+          # Shader atlas swap: swap the naturally-up polygon tile with the
+          # authoritative result tile. All other faces retain a one-to-one atlas.
+          old_shader_uniform = '''uniform float uTargetFaceIndex;\nuniform float uOpacity;'''
+          new_shader_uniform = '''uniform float uTargetFaceIndex;\nuniform float uDisplayTopFaceIndex;\nuniform float uAuthoritativeFaceIndex;\nuniform float uOpacity;'''
+          if old_shader_uniform not in shader:
+              raise SystemExit('Missing shader target uniform')
+          shader = shader.replace(old_shader_uniform, new_shader_uniform, 1)
+
+          old_fi = '''  float fi = floor(vFaceIndex + 0.5);\n  float col = mod(fi, max(1.0, uArtworkGrid.x));'''
+          new_fi = '''  float fi = floor(vFaceIndex + 0.5);\n  float displayTop = floor(uDisplayTopFaceIndex + 0.5);\n  float authoritative = floor(uAuthoritativeFaceIndex + 0.5);\n  if (abs(fi - displayTop) < 0.35) fi = authoritative;\n  else if (abs(fi - authoritative) < 0.35) fi = displayTop;\n  float col = mod(fi, max(1.0, uArtworkGrid.x));'''
+          if old_fi not in shader:
+              raise SystemExit('Missing shader atlas index block')
+          shader = shader.replace(old_fi, new_fi, 1)
+
+          marker = '// v0.7.17 NATURAL_LANDING_AUTHORITATIVE_FACE_REMAP'
+          source = marker + '\n' + source
+          shader = marker + '\n' + shader
+          rpath.write_text(source, encoding='utf-8')
+          spath.write_text(shader, encoding='utf-8')
+          PY
+
+          node --check remap-build/scripts/render/webgl/webgl-renderer.js
+          node --check remap-build/scripts/render/webgl/shaders.js
+          grep -q 'NATURAL_LANDING_AUTHORITATIVE_FACE_REMAP' remap-build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'uDisplayTopFaceIndex' remap-build/scripts/render/webgl/shaders.js
+          grep -q 'topPhysicalFaceIndex(entry)' remap-build/scripts/render/webgl/webgl-renderer.js
+          if grep -q '^  guideResultFace(entry, dt, simulationElapsedMs);' remap-build/scripts/render/webgl/webgl-renderer.js; then
+            echo 'Target-face guidance is still active.'
+            exit 1
+          fi
+
+          (cd remap-build && zip -qr ../genesys-dice-forge-v0.7.17.new.zip .)
+          mv genesys-dice-forge-v0.7.17.new.zip genesys-dice-forge.zip
+          mkdir -p dist
+          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.17.zip
+
+      - name: Verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
+          python - <<'PY'
+          import json
+          with open('/tmp/gdf-module.json', encoding='utf-8') as f:
+              m=json.load(f)
+          assert m['version']=='0.7.17'
+          assert m['download'].endswith('/dist/genesys-dice-forge-v0.7.17.zip')
+          print('Verified', m['title'], m['version'])
+          PY
+          unzip -p genesys-dice-forge.zip scripts/render/webgl/webgl-renderer.js | grep -q 'NATURAL_LANDING_AUTHORITATIVE_FACE_REMAP'
+          unzip -p genesys-dice-forge.zip scripts/render/webgl/shaders.js | grep -q 'uDisplayTopFaceIndex'
+
+      - name: Commit package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.17.zip
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Build stable Genesys Dice Forge v0.7.17 package'
+          git push
