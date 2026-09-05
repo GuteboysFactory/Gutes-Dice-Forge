@@ -1,0 +1,110 @@
+name: Build Dice Forge v0.7.16 Smooth Face Acquisition
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-v0.7.16.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build v0.7.16 from stable v0.7.15 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf smooth-build
+          mkdir -p smooth-build
+          unzip -q genesys-dice-forge.zip -d smooth-build
+
+          cp module.json smooth-build/module.json
+          cp scripts/api.js smooth-build/scripts/api.js
+          cp scripts/main.js smooth-build/scripts/main.js
+          cp scripts/integration/genesys-auto-bridge.js smooth-build/scripts/integration/genesys-auto-bridge.js
+          cp scripts/integration/render-chat-capture.js smooth-build/scripts/integration/render-chat-capture.js
+          cp scripts/integration/chat-launcher.js smooth-build/scripts/integration/chat-launcher.js
+          cp scripts/integration/face-audit.js smooth-build/scripts/integration/face-audit.js
+          cp styles/chat-launcher.css smooth-build/styles/chat-launcher.css
+          cp styles/face-audit.css smooth-build/styles/face-audit.css
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('smooth-build/scripts/render/webgl/webgl-renderer.js')
+          source = path.read_text(encoding='utf-8')
+
+          if 'v0.7.15 bounded deterministic landing recovery' not in source:
+              raise SystemExit('Expected v0.7.15 renderer marker was not found')
+
+          old_constants = '''  hardAssistStartMs: 350,\n  hardAssistRate: 6.2,\n  hardAssistMaxStep: 0.12,\n  settleFaceAngle: 0.055,\n  hardStopMs: 4700'''
+          new_constants = '''  hardAssistStartMs: 300,\n  hardAssistRate: 6.8,\n  hardAssistMaxStep: 0.075,\n  settleFaceAngle: 0.040,\n  terminalAssistMs: 900,\n  hardStopMs: 5600'''
+          if old_constants not in source:
+              raise SystemExit('Expected v0.7.15 constants were not found')
+          source = source.replace(old_constants, new_constants, 1)
+
+          old_recovery = '''  // v0.7.15 bounded deterministic landing recovery. Keep correction inside the\n  // visible physics phase, but REMOVE angular energy as the target approaches.\n  // v0.7.14 added energy while chasing a 0.025 rad threshold and could therefore\n  // create a self-sustaining wobble/spin instead of ever settling.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.settleFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 850, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.55 + overtime * 0.45),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const angularDamping = Math.pow(0.18, dt);\n    const travelDamping = Math.pow(0.28, dt);\n    entry.angularVelocity[0] *= angularDamping;\n    entry.angularVelocity[2] *= angularDamping;\n    entry.velocity[0] *= travelDamping;\n    entry.velocity[2] *= travelDamping;\n  }'''
+          new_recovery = '''  // v0.7.16 smooth deterministic face acquisition. The target face is acquired\n  // over many visible physics frames. No one-frame safety rotation is allowed.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.settleFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / GUIDED_SETTLE.terminalAssistMs, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.42 + overtime * 0.58),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const angularDamping = Math.pow(0.12, dt);\n    const travelDamping = Math.pow(0.22, dt);\n    entry.angularVelocity[0] *= angularDamping;\n    entry.angularVelocity[1] *= angularDamping;\n    entry.angularVelocity[2] *= angularDamping;\n    entry.velocity[0] *= travelDamping;\n    entry.velocity[2] *= travelDamping;\n  }'''
+          if old_recovery not in source:
+              raise SystemExit('Expected v0.7.15 recovery block was not found')
+          source = source.replace(old_recovery, new_recovery, 1)
+
+          old_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          let facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.settleFaceAngle);\n          const hardStopExpired = elapsed >= GUIDED_SETTLE.hardStopMs;\n\n          if (hardStopExpired && !facesReady) {\n            for (const entry of this.activeDice) {\n              const error = resultFaceError(entry);\n              if (error.angle >= GUIDED_SETTLE.settleFaceAngle) {\n                // Final safety acquisition happens before settle/hold, after the\n                // assisted motion has already been strongly damped. No endless spin.\n                entry.rotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n                entry.angularVelocity[0] = 0;\n                entry.angularVelocity[2] = 0;\n              }\n            }\n            facesReady = true;\n          }\n\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || hardStopExpired) beginSettle(now);'''
+          new_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.settleFaceAngle);\n          const hardStopExpired = elapsed >= GUIDED_SETTLE.hardStopMs;\n\n          // v0.7.16: never assign targetRotation here. That one-frame safety\n          // acquisition was the visible end jerk in v0.7.15. If the normal grace\n          // window has elapsed, keep the damped terminal assist running until the\n          // authoritative face is genuinely acquired, with hardStop only acting\n          // as a diagnostic deadline rather than a forced presentation snap.\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady)) beginSettle(now);\n          else if (hardStopExpired && facesReady) beginSettle(now);'''
+          if old_transition not in source:
+              raise SystemExit('Expected v0.7.15 transition block was not found')
+          source = source.replace(old_transition, new_transition, 1)
+
+          path.write_text(source, encoding='utf-8')
+          PY
+
+          node --check smooth-build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'v0.7.16 smooth deterministic face acquisition' smooth-build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'terminalAssistMs: 900' smooth-build/scripts/render/webgl/webgl-renderer.js
+          if grep -q 'entry.rotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);' smooth-build/scripts/render/webgl/webgl-renderer.js; then
+            echo 'Unexpected direct terminal rotation assignment remains.'
+            exit 1
+          fi
+          grep -q 'const eased = 0;' smooth-build/scripts/render/webgl/webgl-renderer.js
+
+          (cd smooth-build && zip -qr ../genesys-dice-forge-v0.7.16.new.zip .)
+          mv genesys-dice-forge-v0.7.16.new.zip genesys-dice-forge.zip
+          mkdir -p dist
+          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.16.zip
+
+      - name: Verify manifest and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
+          python - <<'PY'
+          import json
+          with open('/tmp/gdf-module.json', encoding='utf-8') as f:
+              manifest = json.load(f)
+          assert manifest['id'] == 'genesys-dice-forge'
+          assert manifest['version'] == '0.7.16'
+          assert manifest['download'].endswith('/dist/genesys-dice-forge-v0.7.16.zip')
+          print('Verified Genesys Dice Forge', manifest['version'])
+          PY
+          unzip -p genesys-dice-forge.zip scripts/render/webgl/webgl-renderer.js | grep -q 'v0.7.16 smooth deterministic face acquisition'
+
+      - name: Commit smooth package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.16.zip
+          if git diff --cached --quiet; then
+            echo 'Package already current.'
+            exit 0
+          fi
+          git commit -m 'Build stable Genesys Dice Forge v0.7.16 package'
+          git push
