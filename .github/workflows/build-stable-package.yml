@@ -18,7 +18,6 @@ on:
       - "styles/face-audit.css"
       - "patches/webgl-roll-profiles-v0.7.8.patch"
       - "patches/webgl-guided-settle-v0.7.9.patch"
-      - "patches/webgl-deterministic-face-landing-v0.7.14.patch"
       - ".github/workflows/build-stable-package.yml"
 
 permissions:
@@ -60,8 +59,11 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
+
           path = Path('build/scripts/render/webgl/webgl-renderer.js')
           source = path.read_text(encoding='utf-8')
+
+          # Preserve the approved v0.7.10/v0.7.11 no-final-twist baseline.
           transforms = [
               ('  sleepFaceAngle: 0.11,\n  graceMs: 380', '  sleepFaceAngle: 0.025,\n  graceMs: 1200'),
               ('  const targetAngularSpeed = Math.min(\n    7.4,\n    angle * (3.6 + deadlineRamp * 2.6)\n  );', '  const targetAngularSpeed = Math.min(\n    8.8,\n    angle * (4.0 + deadlineRamp * 3.4)\n  );'),
@@ -72,28 +74,48 @@ jobs:
               ('            for (const entry of this.activeDice) {\n              entry.position = [...entry.finalPosition];\n              entry.rotation = entry.targetRotation;\n              entry.opacity = 1;\n            }', '            for (const entry of this.activeDice) {\n              // v0.7.11: hold exactly the last rendered physical pose. Do not snap\n              // to targetRotation when settle completes. That snap was the last knyck.\n              entry.position = [...entry.position];\n              entry.rotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n              entry.opacity = 1;\n            }'),
               ('      position: entry.finalPosition ? [...entry.finalPosition] : [...entry.position],\n      rotation: entry.targetRotation,', '      position: [...entry.position],\n      rotation: Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1],')
           ]
+
           for old, new in transforms:
               if old in source:
                   source = source.replace(old, new, 1)
               elif new not in source:
                   raise SystemExit(f'Missing renderer transform target: {old[:100]!r}')
+
           if 'const eased = 0;' not in source:
               source = source.replace('const eased = smoothstep(0, 1, t);', 'const eased = 0;', 1)
           if 'const eased = 0;' not in source:
               raise SystemExit('Missing zero-rotation settle guard')
+
+          # v0.7.14 deterministic face landing. Do this with exact source
+          # transforms rather than a line-number-sensitive patch file.
+          if 'v0.7.14 deterministic landing recovery' not in source:
+              constants_old = '''  sleepFaceAngle: 0.025,\n  graceMs: 1200\n});'''
+              constants_new = '''  sleepFaceAngle: 0.025,\n  graceMs: 1200,\n  hardAssistStartMs: 350,\n  hardAssistRate: 5.4,\n  hardAssistMaxStep: 0.10,\n  absoluteSafetyMs: 5200\n});'''
+              if constants_old not in source:
+                  raise SystemExit('Missing GUIDED_SETTLE constants target for v0.7.14')
+              source = source.replace(constants_old, constants_new, 1)
+
+              guide_old = '''  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;\n  entry.angularVelocity[0] += axisX * torque * dt;\n  entry.angularVelocity[2] += axisZ * torque * dt;\n}'''
+              guide_new = '''  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;\n  entry.angularVelocity[0] += axisX * torque * dt;\n  entry.angularVelocity[2] += axisZ * torque * dt;\n\n  // v0.7.14 deterministic landing recovery. Once the normal roll is already\n  // deep into its late-energy phase, blend the CURRENT physical orientation a\n  // tiny amount toward the shortest face-up orientation each physics substep.\n  // This stays inside the physics phase so hold/fade never perform a final snap.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.sleepFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 900, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.45 + overtime * 0.55),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const minRoll = 0.34 + overtime * 0.16;\n    entry.angularVelocity[0] += axisX * minRoll * dt;\n    entry.angularVelocity[2] += axisZ * minRoll * dt;\n  }\n}'''
+              if guide_old not in source:
+                  raise SystemExit('Missing guideResultFace target for v0.7.14')
+              source = source.replace(guide_old, guide_new, 1)
+
+              transition_old = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);'''
+              transition_new = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const absoluteSafetyExpired = elapsed >= GUIDED_SETTLE.absoluteSafetyMs;\n\n          // Never enter hold with the wrong physical face merely because a timer\n          // expired. The authoritative face must be acquired during motion first.\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || (absoluteSafetyExpired && facesReady)) beginSettle(now);'''
+              if transition_old not in source:
+                  raise SystemExit('Missing physics-to-settle transition target for v0.7.14')
+              source = source.replace(transition_old, transition_new, 1)
+
           path.write_text(source, encoding='utf-8')
           PY
-
-          if ! grep -q 'deterministic landing recovery' build/scripts/render/webgl/webgl-renderer.js; then
-            (cd build && patch -p1 < ../patches/webgl-deterministic-face-landing-v0.7.14.patch)
-          fi
 
           node --check build/scripts/render/webgl/webgl-renderer.js
           node --check build/scripts/integration/chat-launcher.js
           node --check build/scripts/integration/face-audit.js
           grep -q 'before-utilities' build/scripts/integration/chat-launcher.js
           grep -q '52-FACE VISUAL QA' build/scripts/integration/face-audit.js
-          grep -q 'deterministic landing recovery' build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'v0.7.14 deterministic landing recovery' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'absoluteSafetyMs: 5200' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'absoluteSafetyExpired && facesReady' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'const eased = 0;' build/scripts/render/webgl/webgl-renderer.js
