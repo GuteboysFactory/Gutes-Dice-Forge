@@ -1,5 +1,32 @@
 # Genesys Dice Forge Changelog
 
+## 0.7.8 - Randomized Motion Profiles
+
+- Adds three distinct physical roll profiles selected independently for each roll.
+- All three profiles preserve the same familiar upper-left overhand release; the motion only diverges after first tabletop impact.
+- **Rail Rebound** keeps the established signature path toward the right rail and rebounds back into the play area.
+- **Scatter Roll** fans the handful laterally after first impact, encourages more crossing trajectories/die collisions, and does not require every die to reach the right rail before sleeping.
+- **Deep Bounce** retains more vertical energy after first impact, adds a livelier mid-roll phase, and settles naturally without requiring the rail path.
+- Weighted random selection is 40% Rail Rebound, 35% Scatter Roll, 25% Deep Bounce.
+- Motion-profile RNG uses a separate deterministic stream so profile selection does not alter the existing release/spawn randomness for a given roll.
+- The selected motion profile is presentation-only and never affects authoritative Genesys `faceIndex` results.
+- Debug mode logs the selected motion profile for QA.
+- Keeps deterministic minimal-correction face-up settling, GOLD adaptive audio, premium dice artwork, zero-config Genesys capture, shared capture dedupe, and the chat-toolbar launcher unchanged.
+- Foundry VTT 13.351 remains the verified baseline with Version 14 compatibility target.
+
+## 0.7.7 - Integrated Chat Launcher
+
+- Replaces the persistent floating Dice Forge launcher with a compact dice icon mounted alongside the Foundry chat roll-mode controls.
+- Clicking the chat icon opens the existing standalone Dice Forge roller near the chat controls.
+- The legacy floating launcher remains internally available as the simulator toggle source but is hidden when the integrated launcher is present.
+- Uses DOM discovery instead of Foundry private internals for v13.351 / v14 resilience.
+
+## 0.7.6 - Shared Capture Deduplication
+
+- Shares captured ChatMessage IDs/fingerprints across the raw ChatMessage and rendered-chat fallback paths.
+- Claims a roll before asynchronous animation begins, preventing the same Genesys result from spawning multiple 3D roll waves.
+- Keeps all automatic capture paths while enforcing one physical presentation per captured message.
+
 ## 0.7.5 - Foundry v13/v14 Rendered Chat Capture
 
 - Adds a final-DOM fallback using Foundry's modern `renderChatMessageHTML` hook.
