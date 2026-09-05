@@ -8,16 +8,8 @@ on:
       - "module.json"
       - "README.md"
       - "CHANGELOG.md"
-      - "scripts/api.js"
-      - "scripts/main.js"
-      - "scripts/integration/genesys-auto-bridge.js"
-      - "scripts/integration/render-chat-capture.js"
-      - "scripts/integration/chat-launcher.js"
-      - "scripts/integration/face-audit.js"
-      - "styles/chat-launcher.css"
-      - "styles/face-audit.css"
-      - "patches/webgl-roll-profiles-v0.7.8.patch"
-      - "patches/webgl-guided-settle-v0.7.9.patch"
+      - "scripts/**"
+      - "styles/**"
       - ".github/workflows/build-stable-package.yml"
 
 permissions:
@@ -30,13 +22,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rebuild stable module zip
+      - name: Rebuild package from approved stable runtime
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf build dist
+          rm -rf build
           mkdir -p build dist
           unzip -q genesys-dice-forge.zip -d build
+
+          # Overlay first-class repository sources onto the approved packaged
+          # runtime. Renderer/geometry/audio assets remain exactly as accepted in
+          # the current stable ZIP unless explicitly changed in a dedicated patch.
           cp module.json build/module.json
           cp README.md build/README.md
           cp CHANGELOG.md build/CHANGELOG.md
@@ -50,133 +46,110 @@ jobs:
           cp styles/chat-launcher.css build/styles/chat-launcher.css
           cp styles/face-audit.css build/styles/face-audit.css
 
-          if ! grep -q 'const ROLL_PROFILES' build/scripts/render/webgl/webgl-renderer.js; then
-            (cd build && patch -p1 < ../patches/webgl-roll-profiles-v0.7.8.patch)
+          VERSION=$(python - <<'PY'
+          import json
+          with open('module.json', encoding='utf-8') as f:
+              print(json.load(f)['version'])
+          PY
+          )
+          echo "Packaging Genesys Dice Forge ${VERSION}"
+
+          # Syntax-check every packaged module script. This catches malformed
+          # overlays without executing Foundry/browser globals in Node.
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(find build/scripts -type f -name '*.js' -print0)
+
+          # Preserve the accepted v0.7.17 natural-landing architecture. Physics
+          # must not resume chasing an authoritative polygon or snap at hold.
+          grep -q 'NATURAL_LANDING_AUTHORITATIVE_FACE_REMAP' build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'uDisplayTopFaceIndex' build/scripts/render/webgl/shaders.js
+          grep -q 'topPhysicalFaceIndex(entry)' build/scripts/render/webgl/webgl-renderer.js
+          if grep -q '^  guideResultFace(entry, dt, simulationElapsedMs);' build/scripts/render/webgl/webgl-renderer.js; then
+            echo 'ERROR: target-face guidance was reactivated.'
+            exit 1
           fi
-          if ! grep -q 'const GUIDED_SETTLE' build/scripts/render/webgl/webgl-renderer.js; then
-            (cd build && patch -p1 < ../patches/webgl-guided-settle-v0.7.9.patch)
+          if grep -q 'entry.rotation = entry.targetRotation' build/scripts/render/webgl/webgl-renderer.js; then
+            echo 'ERROR: final targetRotation snap was reintroduced.'
+            exit 1
           fi
 
+          # Foundry v13/v14 static compatibility gates. Runtime v14 still needs a
+          # real Foundry client smoke test before it can be marked verified.
+          grep -q 'Hooks.on("renderChatMessageHTML"' build/scripts/integration/render-chat-capture.js
+          if grep -R -E 'Hooks\.on\(["'"']renderChatMessage["'"'][[:space:]]*,' build/scripts; then
+            echo 'ERROR: deprecated renderChatMessage hook found.'
+            exit 1
+          fi
+
+          # Verify exact narrative-face inventory is still 52 physical faces.
+          node --input-type=module <<'NODE'
+          import { pathToFileURL } from 'node:url';
+          import path from 'node:path';
+          const mod = await import(pathToFileURL(path.resolve('build/scripts/core/dice-types.js')).href);
+          const expectedSides = { boost: 6, setback: 6, ability: 8, difficulty: 8, proficiency: 12, challenge: 12 };
+          let total = 0;
+          for (const [type, sides] of Object.entries(expectedSides)) {
+            const def = mod.DICE_TYPES[type];
+            if (!def || def.sides !== sides || def.faces.length !== sides) throw new Error(`Bad ${type} definition`);
+            total += sides;
+          }
+          if (total !== 52) throw new Error(`Expected 52 faces, found ${total}`);
+          console.log('PASS 52/52 narrative face inventory');
+          NODE
+
+          # Manifest/package consistency and V13/V14 declaration.
           python - <<'PY'
-          from pathlib import Path
-
-          path = Path('build/scripts/render/webgl/webgl-renderer.js')
-          source = path.read_text(encoding='utf-8')
-
-          # Historical transforms are retained so a clean rebuild from an older
-          # stable package still converges on the approved no-final-twist baseline.
-          transforms = [
-              ('  sleepFaceAngle: 0.11,\n  graceMs: 380', '  sleepFaceAngle: 0.025,\n  graceMs: 1200'),
-              ('  const targetAngularSpeed = Math.min(\n    7.4,\n    angle * (3.6 + deadlineRamp * 2.6)\n  );', '  const targetAngularSpeed = Math.min(\n    8.8,\n    angle * (4.0 + deadlineRamp * 3.4)\n  );'),
-              ('  const torque = Math.min(\n    9.0,\n    angle * (4.8 + deadlineRamp * 3.0)\n  ) * strength;', '  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;'),
-              ('          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          if (allSleeping || guidanceGraceExpired) beginSettle(now);', '          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);'),
-              ('          entry.settleFromRotation = entry.rotation;\n          entry.settleFromPosition = [...entry.position];\n          entry.targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);', '          entry.settleFromRotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n          entry.settleFromPosition = [...entry.position];\n          entry.targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.settleFromRotation);'),
-              ('            const rotation = quatSlerp(entry.settleFromRotation, entry.targetRotation, eased);', '            const rotation = entry.settleFromRotation ?? entry.rotation ?? [0, 0, 0, 1];'),
-              ('            for (const entry of this.activeDice) {\n              entry.position = [...entry.finalPosition];\n              entry.rotation = entry.targetRotation;\n              entry.opacity = 1;\n            }', '            for (const entry of this.activeDice) {\n              // v0.7.11: hold exactly the last rendered physical pose. Do not snap\n              // to targetRotation when settle completes. That snap was the last knyck.\n              entry.position = [...entry.position];\n              entry.rotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n              entry.opacity = 1;\n            }'),
-              ('      position: entry.finalPosition ? [...entry.finalPosition] : [...entry.position],\n      rotation: entry.targetRotation,', '      position: [...entry.position],\n      rotation: Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1],')
-          ]
-
-          for old, new in transforms:
-              if old in source:
-                  source = source.replace(old, new, 1)
-              elif new not in source:
-                  raise SystemExit(f'Missing renderer transform target: {old[:100]!r}')
-
-          if 'const eased = 0;' not in source:
-              source = source.replace('const eased = smoothstep(0, 1, t);', 'const eased = 0;', 1)
-          if 'const eased = 0;' not in source:
-              raise SystemExit('Missing zero-rotation settle guard')
-
-          # If rebuilding from pre-v0.7.14, first install its deterministic recovery.
-          if 'v0.7.14 deterministic landing recovery' not in source and 'v0.7.15 bounded deterministic landing recovery' not in source:
-              constants_old = '''  sleepFaceAngle: 0.025,\n  graceMs: 1200\n});'''
-              constants_new = '''  sleepFaceAngle: 0.025,\n  graceMs: 1200,\n  hardAssistStartMs: 350,\n  hardAssistRate: 5.4,\n  hardAssistMaxStep: 0.10,\n  absoluteSafetyMs: 5200\n});'''
-              if constants_old not in source:
-                  raise SystemExit('Missing GUIDED_SETTLE constants target for v0.7.14')
-              source = source.replace(constants_old, constants_new, 1)
-
-              guide_old = '''  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;\n  entry.angularVelocity[0] += axisX * torque * dt;\n  entry.angularVelocity[2] += axisZ * torque * dt;\n}'''
-              guide_new = '''  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;\n  entry.angularVelocity[0] += axisX * torque * dt;\n  entry.angularVelocity[2] += axisZ * torque * dt;\n\n  // v0.7.14 deterministic landing recovery. Once the normal roll is already\n  // deep into its late-energy phase, blend the CURRENT physical orientation a\n  // tiny amount toward the shortest face-up orientation each physics substep.\n  // This stays inside the physics phase so hold/fade never perform a final snap.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.sleepFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 900, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.45 + overtime * 0.55),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const minRoll = 0.34 + overtime * 0.16;\n    entry.angularVelocity[0] += axisX * minRoll * dt;\n    entry.angularVelocity[2] += axisZ * minRoll * dt;\n  }\n}'''
-              if guide_old not in source:
-                  raise SystemExit('Missing guideResultFace target for v0.7.14')
-              source = source.replace(guide_old, guide_new, 1)
-
-              transition_old = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);'''
-              transition_new = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const absoluteSafetyExpired = elapsed >= GUIDED_SETTLE.absoluteSafetyMs;\n\n          // Never enter hold with the wrong physical face merely because a timer\n          // expired. The authoritative face must be acquired during motion first.\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || (absoluteSafetyExpired && facesReady)) beginSettle(now);'''
-              if transition_old not in source:
-                  raise SystemExit('Missing physics-to-settle transition target for v0.7.14')
-              source = source.replace(transition_old, transition_new, 1)
-
-          # v0.7.15: v0.7.14 could keep feeding angular energy while waiting for
-          # an extremely tight face angle, causing a die to visibly freak out.
-          # Bound recovery, damp the assisted roll, and guarantee termination with
-          # at most a tiny in-motion face correction before hold.
-          if 'v0.7.15 bounded deterministic landing recovery' not in source:
-              old_constants = '''  hardAssistStartMs: 350,\n  hardAssistRate: 5.4,\n  hardAssistMaxStep: 0.10,\n  absoluteSafetyMs: 5200'''
-              new_constants = '''  hardAssistStartMs: 350,\n  hardAssistRate: 6.2,\n  hardAssistMaxStep: 0.12,\n  settleFaceAngle: 0.055,\n  hardStopMs: 4700'''
-              if old_constants not in source:
-                  raise SystemExit('Missing v0.7.14 recovery constants for v0.7.15')
-              source = source.replace(old_constants, new_constants, 1)
-
-              old_recovery = '''  // v0.7.14 deterministic landing recovery. Once the normal roll is already\n  // deep into its late-energy phase, blend the CURRENT physical orientation a\n  // tiny amount toward the shortest face-up orientation each physics substep.\n  // This stays inside the physics phase so hold/fade never perform a final snap.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.sleepFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 900, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.45 + overtime * 0.55),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const minRoll = 0.34 + overtime * 0.16;\n    entry.angularVelocity[0] += axisX * minRoll * dt;\n    entry.angularVelocity[2] += axisZ * minRoll * dt;\n  }'''
-              new_recovery = '''  // v0.7.15 bounded deterministic landing recovery. Keep the correction inside\n  // the visible physics phase, but remove energy as we converge so the die cannot\n  // enter a perpetual assisted wobble/spin while chasing the exact face angle.\n  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;\n  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.settleFaceAngle) {\n    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 850, 0, 1);\n    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n    const assist = clamp(\n      dt * GUIDED_SETTLE.hardAssistRate * (0.55 + overtime * 0.45),\n      0,\n      GUIDED_SETTLE.hardAssistMaxStep\n    );\n    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);\n\n    const damping = Math.pow(0.20, dt);\n    entry.angularVelocity[0] *= damping;\n    entry.angularVelocity[2] *= damping;\n    entry.velocity[0] *= Math.pow(0.30, dt);\n    entry.velocity[2] *= Math.pow(0.30, dt);\n  }'''
-              if old_recovery not in source:
-                  raise SystemExit('Missing v0.7.14 recovery block for v0.7.15')
-              source = source.replace(old_recovery, new_recovery, 1)
-
-              old_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const absoluteSafetyExpired = elapsed >= GUIDED_SETTLE.absoluteSafetyMs;\n\n          // Never enter hold with the wrong physical face merely because a timer\n          // expired. The authoritative face must be acquired during motion first.\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || (absoluteSafetyExpired && facesReady)) beginSettle(now);'''
-              new_transition = '''          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          let facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.settleFaceAngle);\n          const hardStopExpired = elapsed >= GUIDED_SETTLE.hardStopMs;\n\n          if (hardStopExpired && !facesReady) {\n            for (const entry of this.activeDice) {\n              const error = resultFaceError(entry);\n              if (error.angle >= GUIDED_SETTLE.settleFaceAngle) {\n                // Safety correction is still made before settle/hold begins. By\n                // this point velocity has already been heavily damped, so this is\n                // a bounded few-degree acquisition rather than a late wild spin.\n                entry.rotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);\n                entry.angularVelocity[0] = 0;\n                entry.angularVelocity[2] = 0;\n              }\n            }\n            facesReady = true;\n          }\n\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || hardStopExpired) beginSettle(now);'''
-              if old_transition not in source:
-                  raise SystemExit('Missing v0.7.14 transition block for v0.7.15')
-              source = source.replace(old_transition, new_transition, 1)
-
-          path.write_text(source, encoding='utf-8')
+          import json, pathlib, re
+          root = pathlib.Path('build')
+          with open(root / 'module.json', encoding='utf-8') as f:
+              m = json.load(f)
+          assert m['id'] == 'genesys-dice-forge'
+          assert m['compatibility']['minimum'] == '13.351'
+          assert str(m['compatibility']['maximum']) == '14'
+          assert m['download'].endswith(f"/dist/genesys-dice-forge-v{m['version']}.zip")
+          for rel in m.get('esmodules', []):
+              assert (root / rel).is_file(), f'Missing esmodule: {rel}'
+          for rel in m.get('styles', []):
+              assert (root / rel).is_file(), f'Missing style: {rel}'
+          api = (root / 'scripts/api.js').read_text(encoding='utf-8')
+          match = re.search(r'get version\(\)\s*\{\s*return\s+["\']([^"\']+)', api)
+          assert match and match.group(1) == m['version'], f"API version mismatch: {match.group(1) if match else 'missing'} vs {m['version']}"
+          print('PASS manifest/API/package consistency', m['version'])
           PY
 
-          node --check build/scripts/render/webgl/webgl-renderer.js
-          node --check build/scripts/integration/chat-launcher.js
-          node --check build/scripts/integration/face-audit.js
-          grep -q 'before-utilities' build/scripts/integration/chat-launcher.js
-          grep -q '52-FACE VISUAL QA' build/scripts/integration/face-audit.js
-          grep -q 'v0.7.15 bounded deterministic landing recovery' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'settleFaceAngle: 0.055' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'hardStopMs: 4700' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'const eased = 0;' build/scripts/render/webgl/webgl-renderer.js
-
-          (cd build && zip -qr ../genesys-dice-forge.new.zip .)
+          rm -f "dist/genesys-dice-forge-v${VERSION}.zip"
+          (cd build && zip -qr "../genesys-dice-forge.new.zip" .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
-          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.15.zip
+          cp genesys-dice-forge.zip "dist/genesys-dice-forge-v${VERSION}.zip"
+          echo "$VERSION" > /tmp/gdf-version
 
-      - name: Verify package manifest
+      - name: Verify rebuilt archive
         shell: bash
         run: |
           set -euo pipefail
+          VERSION=$(cat /tmp/gdf-version)
+          unzip -tq genesys-dice-forge.zip
           unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
           python - <<'PY'
           import json
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
-              manifest = json.load(f)
-          assert manifest['id'] == 'genesys-dice-forge'
-          assert manifest['version'] == '0.7.15'
-          assert manifest['compatibility']['minimum'] == '13.351'
-          assert str(manifest['compatibility']['maximum']) == '14'
-          assert 'scripts/integration/chat-launcher.js' in manifest['esmodules']
-          assert 'scripts/integration/face-audit.js' in manifest['esmodules']
-          assert 'styles/chat-launcher.css' in manifest['styles']
-          assert 'styles/face-audit.css' in manifest['styles']
-          print('Verified Genesys Dice Forge', manifest['version'])
+              m=json.load(f)
+          print('Verified archive:', m['title'], m['version'])
           PY
+          test -f "dist/genesys-dice-forge-v${VERSION}.zip"
 
       - name: Commit stable package if changed
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.15.zip; then
-            echo "Stable package already current."
-            exit 0
-          fi
+          VERSION=$(cat /tmp/gdf-version)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.15.zip
-          git commit -m "Build stable Genesys Dice Forge v0.7.15 package"
+          git add genesys-dice-forge.zip "dist/genesys-dice-forge-v${VERSION}.zip"
+          if git diff --cached --quiet; then
+            echo 'Stable package already current.'
+            exit 0
+          fi
+          git commit -m "Build stable Genesys Dice Forge v${VERSION} package"
           git push
