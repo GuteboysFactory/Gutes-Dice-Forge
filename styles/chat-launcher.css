@@ -7,7 +7,7 @@
   min-width: 32px;
   height: 32px;
   min-height: 32px;
-  margin: 0 0 0 6px;
+  margin: 0;
   padding: 0;
   border: 1px solid rgba(190, 142, 60, 0.78);
   border-radius: 4px;
@@ -17,6 +17,14 @@
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+}
+
+#genesys-dice-forge-chat-launcher.gdf-before-utilities {
+  margin: 0 6px 0 0;
+}
+
+#genesys-dice-forge-chat-launcher.gdf-after-rolls {
+  margin: 0 0 0 6px;
 }
 
 #genesys-dice-forge-chat-launcher.genesys-dice-forge-chat-launcher:hover,
@@ -33,7 +41,7 @@
 }
 
 /* The old floating launcher remains the implementation trigger for the
-   simulator panel, but is hidden once the integrated chat icon is available. */
+   simulator panel, but is hidden only after the integrated chat icon mounts. */
 .genesys-dice-forge-simulator-button.gdf-integrated-launcher-source {
   display: none !important;
 }
@@ -44,7 +52,7 @@
   bottom: 18px;
 }
 
-/* v0.7.7 positions the existing simulator panel beside the toolbar icon. */
+/* The existing simulator panel opens beside the integrated toolbar icon. */
 .genesys-dice-forge-simulator {
   position: fixed !important;
   z-index: 2147483001;
