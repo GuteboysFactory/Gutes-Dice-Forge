@@ -1,0 +1,25 @@
+name: Inspect Dice Forge v0.7.16 Shader Mapping
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-shader-v0716.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect shader mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf inspect-shader
+          mkdir inspect-shader
+          unzip -q genesys-dice-forge.zip -d inspect-shader
+          sed -n '1,360p' inspect-shader/scripts/render/webgl/shaders.js
