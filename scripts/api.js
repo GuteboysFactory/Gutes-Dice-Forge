@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.7";
+    return "0.7.8";
   }
 
   get capabilities() {
@@ -29,6 +29,8 @@ export class GenesysDiceForgeAPI {
       physics: "rigid-body-table-roll",
       virtualTabletop: true,
       throwDirection: "left-to-right",
+      motionProfiles: ["rail-rebound", "scatter-roll", "deep-bounce"],
+      randomizedMotionProfileSelection: true,
       exactDiceCountPresentation: true,
       engravedSymbols: true,
       signatureEffects: true,
