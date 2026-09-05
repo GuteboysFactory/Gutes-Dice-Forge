@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.10";
+    return "0.7.11";
   }
 
   get capabilities() {
@@ -33,13 +33,15 @@ export class GenesysDiceForgeAPI {
       randomizedMotionProfileSelection: true,
       guidedSettle: true,
       visibleFinalTwist: false,
+      holdPoseContinuity: true,
+      defensiveRotationFallback: true,
       exactDiceCountPresentation: true,
       engravedSymbols: true,
       signatureEffects: true,
       signatureGlyphArtwork: true,
       premiumCleanDiceArtwork: true,
       authenticFaceComposition: true,
-      resultFacePresentation: "guided-in-motion-no-final-twist",
+      resultFacePresentation: "guided-in-motion-continuous-hold-pose",
       systemRollPresentation: true,
       automaticSystemBridge: true,
       zeroConfigAutoCapture: true,
