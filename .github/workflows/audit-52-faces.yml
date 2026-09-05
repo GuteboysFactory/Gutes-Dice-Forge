@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inspect packaged dice definitions
+      - name: Validate all 52 packaged narrative faces
         shell: bash
         run: |
           set -euo pipefail
@@ -26,10 +26,93 @@ jobs:
           mkdir audit-build
           unzip -q genesys-dice-forge.zip -d audit-build
 
-          echo '=== SCRIPT TREE ==='
-          find audit-build/scripts -type f -maxdepth 5 | sort
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { pathToFileURL } from 'node:url';
+          import path from 'node:path';
 
-          echo '=== LIKELY FACE / DICE SOURCES ==='
-          grep -RniE --include='*.js' --include='*.mjs' --include='*.json' \
-            'boost|setback|ability|difficulty|proficiency|challenge|faceIndex|rawSymbols|faces|symbols' \
-            audit-build/scripts | head -n 1200 || true
+          const mod = await import(pathToFileURL(path.resolve('audit-build/scripts/core/dice-types.js')).href);
+          const { DICE_TYPES, SYMBOLS, getFaceSymbols } = mod;
+
+          const expected = {
+            boost: [
+              [], [], ['success'], ['success','advantage'], ['advantage','advantage'], ['advantage']
+            ],
+            setback: [
+              [], [], ['failure'], ['failure'], ['threat'], ['threat']
+            ],
+            ability: [
+              [], ['success'], ['success'], ['success','success'], ['advantage'], ['advantage'],
+              ['success','advantage'], ['advantage','advantage']
+            ],
+            difficulty: [
+              [], ['failure'], ['failure','failure'], ['threat'], ['threat'], ['threat'],
+              ['threat','threat'], ['failure','threat']
+            ],
+            proficiency: [
+              [], ['success'], ['success'], ['success','success'], ['success','success'], ['advantage'],
+              ['success','advantage'], ['success','advantage'], ['success','advantage'],
+              ['advantage','advantage'], ['advantage','advantage'], ['triumph']
+            ],
+            challenge: [
+              [], ['failure'], ['failure'], ['failure','failure'], ['failure','failure'], ['threat'],
+              ['threat'], ['failure','threat'], ['failure','threat'],
+              ['threat','threat'], ['threat','threat'], ['despair']
+            ]
+          };
+
+          const sideCounts = { boost: 6, setback: 6, ability: 8, difficulty: 8, proficiency: 12, challenge: 12 };
+          const shapes = { boost: 'd6', setback: 'd6', ability: 'd8', difficulty: 'd8', proficiency: 'd12', challenge: 'd12' };
+          let audited = 0;
+
+          for (const [type, faces] of Object.entries(expected)) {
+            const definition = DICE_TYPES[type];
+            assert.ok(definition, `Missing die definition: ${type}`);
+            assert.equal(definition.sides, sideCounts[type], `${type} side count`);
+            assert.equal(definition.shape, shapes[type], `${type} shape`);
+            assert.equal(definition.faces.length, sideCounts[type], `${type} face array length`);
+            assert.deepEqual(definition.faces.map(face => [...face]), faces, `${type} exact Genesys face distribution`);
+
+            faces.forEach((face, faceIndex) => {
+              assert.deepEqual([...getFaceSymbols(type, faceIndex)], face, `${type} faceIndex ${faceIndex}`);
+              for (const symbol of face) assert.ok(SYMBOLS.includes(symbol), `${type} face ${faceIndex}: unsupported ${symbol}`);
+              audited += 1;
+            });
+            console.log(`PASS ${type.padEnd(11)} ${faces.length}/${faces.length} faces`);
+          }
+
+          assert.equal(audited, 52, 'Total audited physical faces must be 52');
+          assert.ok(SYMBOLS.includes('triumph'), 'Triumph symbol supported');
+          assert.ok(SYMBOLS.includes('despair'), 'Despair symbol supported');
+          console.log(`PASS TOTAL       ${audited}/52 exact face definitions`);
+          NODE
+
+      - name: Validate artwork and renderer face plumbing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for symbol in success advantage triumph failure threat despair; do
+            test -f "audit-build/assets/symbols/${symbol}-mask.png" || {
+              echo "Missing symbol artwork: ${symbol}-mask.png" >&2
+              exit 1
+            }
+            echo "PASS artwork ${symbol}"
+          done
+
+          grep -q 'definition.faces\[faceIndex\]' audit-build/scripts/render/webgl/artwork-texture.js
+          grep -q 'if (!symbols.length) return' audit-build/scripts/render/webgl/artwork-texture.js
+          grep -q 'layoutFor(symbols' audit-build/scripts/render/webgl/artwork-texture.js
+          grep -q 'getFaceSymbols(state.die.type, state.die.faceIndex)' audit-build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'uTargetFaceIndex' audit-build/scripts/render/webgl/webgl-renderer.js
+
+          echo 'PASS renderer uses faceIndex -> exact face symbols'
+          echo 'PASS blank faces remain blank'
+          echo 'PASS multi-symbol faces use multiple glyph placements'
+
+      - name: Validate payload faceIndex bounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'die.faceIndex >= 0 && die.faceIndex < definition.sides' audit-build/scripts/core/payload.js
+          echo 'PASS faceIndex payload bounds enforced for all die types'
