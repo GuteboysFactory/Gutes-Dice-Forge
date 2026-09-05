@@ -1,0 +1,39 @@
+name: Inspect Dice Forge v0.7.16 Renderer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-renderer-v0716.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect face mapping and settle code
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf inspect-build
+          mkdir inspect-build
+          unzip -q genesys-dice-forge.zip -d inspect-build
+          r=inspect-build/scripts/render/webgl/webgl-renderer.js
+          a=inspect-build/scripts/render/webgl/artwork-texture.js
+          g=inspect-build/scripts/render/webgl/geometry.js
+          echo '=== renderer imports / state ==='
+          sed -n '1,220p' "$r"
+          echo '=== face helper functions ==='
+          grep -n -A100 -B20 'resultFaceError\|buildFaceUpTargetRotation\|getFaceSymbols\|uTargetFaceIndex' "$r" || true
+          echo '=== active dice creation ==='
+          grep -n -A160 -B30 'activeDice\|createDie\|spawn' "$r" | head -n 500 || true
+          echo '=== phase transitions ==='
+          grep -n -A180 -B40 'phase === "physics"\|phase === "settle"\|beginSettle' "$r" || true
+          echo '=== artwork texture ==='
+          sed -n '1,320p' "$a"
+          echo '=== geometry face metadata ==='
+          grep -n -A160 -B20 'faceIndex\|faces\|normal' "$g" | head -n 500 || true
