@@ -41,7 +41,7 @@ jobs:
           cp scripts/integration/render-chat-capture.js build/scripts/integration/render-chat-capture.js
           (cd build && zip -qr ../genesys-dice-forge.new.zip .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
-          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.5.zip
+          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.6.zip
 
       - name: Verify package manifest
         shell: bash
@@ -54,7 +54,7 @@ jobs:
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
               manifest = json.load(f)
           assert manifest['id'] == 'genesys-dice-forge'
-          assert manifest['version'] == '0.7.5'
+          assert manifest['version'] == '0.7.6'
           assert manifest['compatibility']['minimum'] == '13.351'
           assert str(manifest['compatibility']['maximum']) == '14'
           assert 'scripts/integration/render-chat-capture.js' in manifest['esmodules']
@@ -65,12 +65,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.5.zip; then
+          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.6.zip; then
             echo "Stable package already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.5.zip
-          git commit -m "Build stable Genesys Dice Forge v0.7.5 package"
+          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.6.zip
+          git commit -m "Build stable Genesys Dice Forge v0.7.6 package"
           git push
