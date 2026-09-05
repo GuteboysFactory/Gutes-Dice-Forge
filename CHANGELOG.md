@@ -1,5 +1,18 @@
 # Genesys Dice Forge Changelog
 
+## 0.7.9 - Progressive Guided Settle
+
+- Moves most result-face correction into the late physical roll instead of relying on a visible final twist.
+- Keeps the opening of every throw fully physical; guidance only begins after the die has hit the tabletop and the roll has started losing energy.
+- Uses torque/angular-velocity guidance toward the already-authoritative Genesys `faceIndex` rather than directly rotating the rendered die.
+- Preserves natural yaw so symbols are not presentation-snapped toward the camera.
+- Rail Rebound keeps only a weak pre-rail bias so its signature right-edge hit remains physical; Scatter Roll and Deep Bounce can guide somewhat earlier because they do not require the rail.
+- Sleep detection now requires the authoritative face to already be close to upward before the deterministic settle may begin.
+- Adds a short physics-only grace period after each motion profile's normal deadline so Guided Settle can finish naturally instead of cutting into a large correction.
+- Reduces the final deterministic settle window from 320 ms to 180 ms; it remains as a safety micro-correction to guarantee exact face playback.
+- No changes to authoritative result generation, three motion-profile weights, GOLD adaptive audio, dice artwork, auto-capture, shared dedupe, or chat-toolbar launcher.
+- Foundry VTT 13.351 remains the verified baseline with Version 14 compatibility target.
+
 ## 0.7.8 - Randomized Motion Profiles
 
 - Adds three distinct physical roll profiles selected independently for each roll.
