@@ -64,7 +64,6 @@ jobs:
               ('  const targetAngularSpeed = Math.min(\n    7.4,\n    angle * (3.6 + deadlineRamp * 2.6)\n  );', '  const targetAngularSpeed = Math.min(\n    8.8,\n    angle * (4.0 + deadlineRamp * 3.4)\n  );'),
               ('  const torque = Math.min(\n    9.0,\n    angle * (4.8 + deadlineRamp * 3.0)\n  ) * strength;', '  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;'),
               ('          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          if (allSleeping || guidanceGraceExpired) beginSettle(now);', '          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);'),
-              ('          const eased = smoothstep(0, 1, t);', '          // v0.7.10+: orientation is completed during physical guidance.\n          const eased = 0;'),
               ('          entry.settleFromRotation = entry.rotation;\n          entry.settleFromPosition = [...entry.position];\n          entry.targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);', '          entry.settleFromRotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n          entry.settleFromPosition = [...entry.position];\n          entry.targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.settleFromRotation);'),
               ('            const rotation = quatSlerp(entry.settleFromRotation, entry.targetRotation, eased);', '            const rotation = entry.settleFromRotation ?? entry.rotation ?? [0, 0, 0, 1];'),
               ('            for (const entry of this.activeDice) {\n              entry.position = [...entry.finalPosition];\n              entry.rotation = entry.targetRotation;\n              entry.opacity = 1;\n            }', '            for (const entry of this.activeDice) {\n              // v0.7.11: hold exactly the last rendered physical pose. Do not snap\n              // to targetRotation when settle completes. That snap was the last knyck.\n              entry.position = [...entry.position];\n              entry.rotation = Array.isArray(entry.rotation) ? [...entry.rotation] : [0, 0, 0, 1];\n              entry.opacity = 1;\n            }'),
@@ -77,6 +76,13 @@ jobs:
               elif new not in source:
                   raise SystemExit(f'Missing renderer transform target: {old[:100]!r}')
 
+          # v0.7.10 already set the settle interpolation factor to zero. Keep it
+          # that way, but do not require a specific comment string from the prior build.
+          if 'const eased = 0;' not in source:
+              source = source.replace('const eased = smoothstep(0, 1, t);', 'const eased = 0;', 1)
+          if 'const eased = 0;' not in source:
+              raise SystemExit('Missing zero-rotation settle guard')
+
           path.write_text(source, encoding='utf-8')
           PY
 
@@ -87,6 +93,7 @@ jobs:
           grep -q 'const GUIDED_SETTLE' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'hold exactly the last rendered physical pose' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'Array.isArray(entry.rotation)' build/scripts/render/webgl/webgl-renderer.js
+          grep -q 'const eased = 0;' build/scripts/render/webgl/webgl-renderer.js
 
           (cd build && zip -qr ../genesys-dice-forge.new.zip .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
