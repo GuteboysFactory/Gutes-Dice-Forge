@@ -60,26 +60,11 @@ jobs:
           source = path.read_text(encoding='utf-8')
 
           replacements = [
-              (
-                  '  sleepFaceAngle: 0.11,\n  graceMs: 380',
-                  '  sleepFaceAngle: 0.025,\n  graceMs: 1200'
-              ),
-              (
-                  '  const targetAngularSpeed = Math.min(\n    7.4,\n    angle * (3.6 + deadlineRamp * 2.6)\n  );',
-                  '  const targetAngularSpeed = Math.min(\n    8.8,\n    angle * (4.0 + deadlineRamp * 3.4)\n  );'
-              ),
-              (
-                  '  const torque = Math.min(\n    9.0,\n    angle * (4.8 + deadlineRamp * 3.0)\n  ) * strength;',
-                  '  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;'
-              ),
-              (
-                  '          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          if (allSleeping || guidanceGraceExpired) beginSettle(now);',
-                  '          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);'
-              ),
-              (
-                  '          const eased = smoothstep(0, 1, t);',
-                  '          // v0.7.10: result orientation is completed during physical guidance.\n          // Never rotate after the roll has visually stopped; this removes the final twist.\n          const eased = 0;'
-              )
+              ('  sleepFaceAngle: 0.11,\n  graceMs: 380', '  sleepFaceAngle: 0.025,\n  graceMs: 1200'),
+              ('  const targetAngularSpeed = Math.min(\n    7.4,\n    angle * (3.6 + deadlineRamp * 2.6)\n  );', '  const targetAngularSpeed = Math.min(\n    8.8,\n    angle * (4.0 + deadlineRamp * 3.4)\n  );'),
+              ('  const torque = Math.min(\n    9.0,\n    angle * (4.8 + deadlineRamp * 3.0)\n  ) * strength;', '  const torque = Math.min(\n    12.0,\n    angle * (5.2 + deadlineRamp * 4.2)\n  ) * strength;'),
+              ('          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          if (allSleeping || guidanceGraceExpired) beginSettle(now);', '          const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;\n          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);\n          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;\n          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);'),
+              ('          const eased = smoothstep(0, 1, t);', '          // v0.7.10: result orientation is completed during physical guidance.\n          // Never rotate after the roll has visually stopped; this removes the final twist.\n          const eased = 0;')
           ]
 
           for old, new in replacements:
@@ -90,6 +75,11 @@ jobs:
 
           path.write_text(source, encoding='utf-8')
           PY
+
+          echo '--- SETTLE SOURCE ---'
+          nl -ba build/scripts/render/webgl/webgl-renderer.js | sed -n '780,885p'
+          echo '--- DRAW SOURCE ---'
+          nl -ba build/scripts/render/webgl/webgl-renderer.js | sed -n '920,975p'
 
           node --check build/scripts/render/webgl/webgl-renderer.js
           grep -q 'rail-rebound' build/scripts/render/webgl/webgl-renderer.js
