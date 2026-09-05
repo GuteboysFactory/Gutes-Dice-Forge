@@ -13,7 +13,9 @@ on:
       - "scripts/integration/genesys-auto-bridge.js"
       - "scripts/integration/render-chat-capture.js"
       - "scripts/integration/chat-launcher.js"
+      - "scripts/integration/face-audit.js"
       - "styles/chat-launcher.css"
+      - "styles/face-audit.css"
       - "patches/webgl-roll-profiles-v0.7.8.patch"
       - "patches/webgl-guided-settle-v0.7.9.patch"
       - ".github/workflows/build-stable-package.yml"
@@ -44,7 +46,9 @@ jobs:
           cp scripts/integration/genesys-auto-bridge.js build/scripts/integration/genesys-auto-bridge.js
           cp scripts/integration/render-chat-capture.js build/scripts/integration/render-chat-capture.js
           cp scripts/integration/chat-launcher.js build/scripts/integration/chat-launcher.js
+          cp scripts/integration/face-audit.js build/scripts/integration/face-audit.js
           cp styles/chat-launcher.css build/styles/chat-launcher.css
+          cp styles/face-audit.css build/styles/face-audit.css
 
           if ! grep -q 'const ROLL_PROFILES' build/scripts/render/webgl/webgl-renderer.js; then
             (cd build && patch -p1 < ../patches/webgl-roll-profiles-v0.7.8.patch)
@@ -86,13 +90,15 @@ jobs:
 
           node --check build/scripts/render/webgl/webgl-renderer.js
           node --check build/scripts/integration/chat-launcher.js
+          node --check build/scripts/integration/face-audit.js
           grep -q 'before-utilities' build/scripts/integration/chat-launcher.js
+          grep -q '52-FACE VISUAL QA' build/scripts/integration/face-audit.js
           grep -q 'hold exactly the last rendered physical pose' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'const eased = 0;' build/scripts/render/webgl/webgl-renderer.js
 
           (cd build && zip -qr ../genesys-dice-forge.new.zip .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
-          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.12.zip
+          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.13.zip
 
       - name: Verify package manifest
         shell: bash
@@ -104,11 +110,13 @@ jobs:
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
               manifest = json.load(f)
           assert manifest['id'] == 'genesys-dice-forge'
-          assert manifest['version'] == '0.7.12'
+          assert manifest['version'] == '0.7.13'
           assert manifest['compatibility']['minimum'] == '13.351'
           assert str(manifest['compatibility']['maximum']) == '14'
           assert 'scripts/integration/chat-launcher.js' in manifest['esmodules']
+          assert 'scripts/integration/face-audit.js' in manifest['esmodules']
           assert 'styles/chat-launcher.css' in manifest['styles']
+          assert 'styles/face-audit.css' in manifest['styles']
           print('Verified Genesys Dice Forge', manifest['version'])
           PY
 
@@ -116,12 +124,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.12.zip; then
+          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.13.zip; then
             echo "Stable package already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.12.zip
-          git commit -m "Build stable Genesys Dice Forge v0.7.12 package"
+          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.13.zip
+          git commit -m "Build stable Genesys Dice Forge v0.7.13 package"
           git push
