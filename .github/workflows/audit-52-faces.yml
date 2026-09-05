@@ -35,30 +35,12 @@ jobs:
           const { DICE_TYPES, SYMBOLS, getFaceSymbols } = mod;
 
           const expected = {
-            boost: [
-              [], [], ['success'], ['success','advantage'], ['advantage','advantage'], ['advantage']
-            ],
-            setback: [
-              [], [], ['failure'], ['failure'], ['threat'], ['threat']
-            ],
-            ability: [
-              [], ['success'], ['success'], ['success','success'], ['advantage'], ['advantage'],
-              ['success','advantage'], ['advantage','advantage']
-            ],
-            difficulty: [
-              [], ['failure'], ['failure','failure'], ['threat'], ['threat'], ['threat'],
-              ['threat','threat'], ['failure','threat']
-            ],
-            proficiency: [
-              [], ['success'], ['success'], ['success','success'], ['success','success'], ['advantage'],
-              ['success','advantage'], ['success','advantage'], ['success','advantage'],
-              ['advantage','advantage'], ['advantage','advantage'], ['triumph']
-            ],
-            challenge: [
-              [], ['failure'], ['failure'], ['failure','failure'], ['failure','failure'], ['threat'],
-              ['threat'], ['failure','threat'], ['failure','threat'],
-              ['threat','threat'], ['threat','threat'], ['despair']
-            ]
+            boost: [[], [], ['success'], ['success','advantage'], ['advantage','advantage'], ['advantage']],
+            setback: [[], [], ['failure'], ['failure'], ['threat'], ['threat']],
+            ability: [[], ['success'], ['success'], ['success','success'], ['advantage'], ['advantage'], ['success','advantage'], ['advantage','advantage']],
+            difficulty: [[], ['failure'], ['failure','failure'], ['threat'], ['threat'], ['threat'], ['threat','threat'], ['failure','threat']],
+            proficiency: [[], ['success'], ['success'], ['success','success'], ['success','success'], ['advantage'], ['success','advantage'], ['success','advantage'], ['success','advantage'], ['advantage','advantage'], ['advantage','advantage'], ['triumph']],
+            challenge: [[], ['failure'], ['failure'], ['failure','failure'], ['failure','failure'], ['threat'], ['threat'], ['failure','threat'], ['failure','threat'], ['threat','threat'], ['threat','threat'], ['despair']]
           };
 
           const sideCounts = { boost: 6, setback: 6, ability: 8, difficulty: 8, proficiency: 12, challenge: 12 };
@@ -72,7 +54,6 @@ jobs:
             assert.equal(definition.shape, shapes[type], `${type} shape`);
             assert.equal(definition.faces.length, sideCounts[type], `${type} face array length`);
             assert.deepEqual(definition.faces.map(face => [...face]), faces, `${type} exact Genesys face distribution`);
-
             faces.forEach((face, faceIndex) => {
               assert.deepEqual([...getFaceSymbols(type, faceIndex)], face, `${type} faceIndex ${faceIndex}`);
               for (const symbol of face) assert.ok(SYMBOLS.includes(symbol), `${type} face ${faceIndex}: unsupported ${symbol}`);
@@ -82,33 +63,41 @@ jobs:
           }
 
           assert.equal(audited, 52, 'Total audited physical faces must be 52');
-          assert.ok(SYMBOLS.includes('triumph'), 'Triumph symbol supported');
-          assert.ok(SYMBOLS.includes('despair'), 'Despair symbol supported');
           console.log(`PASS TOTAL       ${audited}/52 exact face definitions`);
           NODE
+
+      - name: Inspect current guided-settle runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=audit-build/scripts/render/webgl/webgl-renderer.js
+          echo '=== GUIDED SETTLE CONSTANTS ==='
+          grep -n -A16 -B4 'const GUIDED_SETTLE' "$file" || true
+          echo '=== RESULT FACE ERROR ==='
+          grep -n -A34 -B4 'function resultFaceError' "$file" || true
+          echo '=== GUIDE RESULT FACE ==='
+          grep -n -A120 -B4 'function guideResultFace' "$file" || true
+          echo '=== GUIDE CALL SITES ==='
+          grep -n -A10 -B10 'guideResultFace' "$file" || true
+          echo '=== PHYSICS -> SETTLE TRANSITION ==='
+          grep -n -A40 -B18 'guidanceGraceExpired' "$file" || true
+          echo '=== SETTLE / HOLD TRANSITION ==='
+          grep -n -A75 -B10 'phase === "settle"' "$file" || true
 
       - name: Validate artwork and renderer face plumbing
         shell: bash
         run: |
           set -euo pipefail
-
           for symbol in success advantage triumph failure threat despair; do
-            test -f "audit-build/assets/symbols/${symbol}-mask.png" || {
-              echo "Missing symbol artwork: ${symbol}-mask.png" >&2
-              exit 1
-            }
+            test -f "audit-build/assets/symbols/${symbol}-mask.png" || exit 1
             echo "PASS artwork ${symbol}"
           done
-
           grep -q 'definition.faces\[faceIndex\]' audit-build/scripts/render/webgl/artwork-texture.js
           grep -q 'if (!symbols.length) return' audit-build/scripts/render/webgl/artwork-texture.js
           grep -q 'layoutFor(symbols' audit-build/scripts/render/webgl/artwork-texture.js
           grep -q 'getFaceSymbols(state.die.type, state.die.faceIndex)' audit-build/scripts/render/webgl/webgl-renderer.js
           grep -q 'uTargetFaceIndex' audit-build/scripts/render/webgl/webgl-renderer.js
-
           echo 'PASS renderer uses faceIndex -> exact face symbols'
-          echo 'PASS blank faces remain blank'
-          echo 'PASS multi-symbol faces use multiple glyph placements'
 
       - name: Validate payload faceIndex bounds
         shell: bash
