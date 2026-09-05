@@ -1,5 +1,15 @@
 # Genesys Dice Forge Changelog
 
+## 0.7.10 - No Final Twist
+
+- Removes the visible last-second quaternion correction after the physical roll has visually finished.
+- Tightens Guided Settle so the authoritative result face must be acquired during the physics phase itself.
+- Gives the physics guidance a longer grace window to finish orienting the correct face before presentation can settle.
+- Strengthens only the late in-motion angular guidance; the opening throw and the three motion profiles remain unchanged.
+- The deterministic settle phase no longer rotates the die at all; it preserves the exact physical end pose and only handles presentation timing.
+- Keeps the authoritative Genesys `faceIndex` result unchanged, along with GOLD adaptive audio, dice artwork, auto-capture, shared dedupe and chat-toolbar launcher.
+- Foundry VTT 13.351 remains the verified baseline with Version 14 compatibility target.
+
 ## 0.7.9 - Progressive Guided Settle
 
 - Moves most result-face correction into the late physical roll instead of relying on a visible final twist.
