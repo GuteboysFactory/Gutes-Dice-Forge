@@ -1,5 +1,15 @@
 # Genesys Dice Forge Changelog
 
+## 1.0.0 - Stable Release
+
+- Promotes the approved v0.9.0 release candidate to stable without intentionally changing renderer physics, dice artwork, audio, capture behavior or launcher placement.
+- Locks the natural rigid-body landing + authoritative top-face artwork remap architecture as the v1.0 presentation baseline.
+- Keeps zero-config Genesys auto-capture, rendered-chat fallback, shared deduplication, integrated chat launcher, standalone simulator, deterministic 52-face QA cycler and GOLD adaptive audio.
+- Marks the public API as `stableRelease: true` and clears release-candidate status.
+- Keeps Foundry VTT 13.351 as the verified runtime baseline.
+- Keeps Foundry VTT 14 declared compatible but explicitly unverified at runtime until a real v14 environment is available.
+- Future changes after v1.0 should be driven by real playtest bugs, compatibility findings or explicit feature requests rather than speculative polish.
+
 ## 0.9.0 - Release Candidate
 
 - Promotes the feature-complete v0.8.0 baseline to release-candidate status without intentionally changing renderer physics, dice artwork, audio, capture behavior or launcher placement.
