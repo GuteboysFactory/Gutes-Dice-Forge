@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.17";
+    return "0.8.0";
   }
 
   get capabilities() {
@@ -51,6 +51,7 @@ export class GenesysDiceForgeAPI {
       chatToolbarPlacement: "before-utilities",
       visual52FaceAudit: true,
       deterministicFaceCycler: true,
+      featureComplete: true,
       alwaysOnTopPresentation: true,
       standaloneRollSimulator: true,
       audio: this.#audioEngine?.capabilities ?? null,
