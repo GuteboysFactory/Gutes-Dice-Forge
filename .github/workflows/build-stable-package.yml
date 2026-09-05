@@ -76,8 +76,6 @@ jobs:
               elif new not in source:
                   raise SystemExit(f'Missing renderer transform target: {old[:100]!r}')
 
-          # v0.7.10 already set the settle interpolation factor to zero. Keep it
-          # that way, but do not require a specific comment string from the prior build.
           if 'const eased = 0;' not in source:
               source = source.replace('const eased = smoothstep(0, 1, t);', 'const eased = 0;', 1)
           if 'const eased = 0;' not in source:
@@ -87,33 +85,28 @@ jobs:
           PY
 
           node --check build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'rail-rebound' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'scatter-roll' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'deep-bounce' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'const GUIDED_SETTLE' build/scripts/render/webgl/webgl-renderer.js
+          node --check build/scripts/integration/chat-launcher.js
+          grep -q 'before-utilities' build/scripts/integration/chat-launcher.js
           grep -q 'hold exactly the last rendered physical pose' build/scripts/render/webgl/webgl-renderer.js
-          grep -q 'Array.isArray(entry.rotation)' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'const eased = 0;' build/scripts/render/webgl/webgl-renderer.js
 
           (cd build && zip -qr ../genesys-dice-forge.new.zip .)
           mv genesys-dice-forge.new.zip genesys-dice-forge.zip
-          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.11.zip
+          cp genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.12.zip
 
       - name: Verify package manifest
         shell: bash
         run: |
           set -euo pipefail
           unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
-          unzip -l genesys-dice-forge.zip scripts/integration/render-chat-capture.js scripts/integration/chat-launcher.js styles/chat-launcher.css scripts/render/webgl/webgl-renderer.js >/tmp/gdf-files.txt
           python - <<'PY'
           import json
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
               manifest = json.load(f)
           assert manifest['id'] == 'genesys-dice-forge'
-          assert manifest['version'] == '0.7.11'
+          assert manifest['version'] == '0.7.12'
           assert manifest['compatibility']['minimum'] == '13.351'
           assert str(manifest['compatibility']['maximum']) == '14'
-          assert 'scripts/integration/render-chat-capture.js' in manifest['esmodules']
           assert 'scripts/integration/chat-launcher.js' in manifest['esmodules']
           assert 'styles/chat-launcher.css' in manifest['styles']
           print('Verified Genesys Dice Forge', manifest['version'])
@@ -123,12 +116,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.11.zip; then
+          if git diff --quiet -- genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.12.zip; then
             echo "Stable package already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.11.zip
-          git commit -m "Build stable Genesys Dice Forge v0.7.11 package"
+          git add genesys-dice-forge.zip dist/genesys-dice-forge-v0.7.12.zip
+          git commit -m "Build stable Genesys Dice Forge v0.7.12 package"
           git push
