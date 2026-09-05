@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.9.0";
+    return "1.0.0";
   }
 
   get capabilities() {
@@ -52,7 +52,8 @@ export class GenesysDiceForgeAPI {
       visual52FaceAudit: true,
       deterministicFaceCycler: true,
       featureComplete: true,
-      releaseCandidate: true,
+      stableRelease: true,
+      releaseCandidate: false,
       foundry14RuntimeVerified: false,
       alwaysOnTopPresentation: true,
       standaloneRollSimulator: true,
