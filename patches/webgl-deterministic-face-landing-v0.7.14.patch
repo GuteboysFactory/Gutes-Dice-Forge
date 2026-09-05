@@ -1,0 +1,64 @@
+--- a/scripts/render/webgl/webgl-renderer.js
++++ b/scripts/render/webgl/webgl-renderer.js
+@@ -127,10 +127,14 @@
+ const GUIDED_SETTLE = Object.freeze({
+   freePhysicsMs: 700,
+   guideLeadMs: 430,
+   maxHorizontalSpeed: 3.40,
+   maxVerticalSpeed: 0.52,
+   sleepFaceAngle: 0.025,
+-  graceMs: 1200
++  graceMs: 1200,
++  hardAssistStartMs: 350,
++  hardAssistRate: 5.4,
++  hardAssistMaxStep: 0.10,
++  absoluteSafetyMs: 5200
+ });
+@@ -544,10 +548,31 @@
+   const torque = Math.min(
+     12.0,
+     angle * (5.2 + deadlineRamp * 4.2)
+   ) * strength;
+   entry.angularVelocity[0] += axisX * torque * dt;
+   entry.angularVelocity[2] += axisZ * torque * dt;
++
++  // v0.7.14 deterministic landing recovery. Once the normal roll is already
++  // deep into its late-energy phase, blend the CURRENT physical orientation a
++  // tiny amount toward the shortest face-up orientation each physics substep.
++  // This is deliberately performed while the die is still moving, never in the
++  // hold/fade presentation phase, so the player sees continued rolling rather
++  // than a final snap. Yaw remains whatever the current pose carries because
++  // buildFaceUpTargetRotation only aligns the selected face normal to table up.
++  const hardAssistStart = entry.rollProfile.maxSimulationMs + GUIDED_SETTLE.hardAssistStartMs;
++  if (simulationElapsedMs >= hardAssistStart && angle > GUIDED_SETTLE.sleepFaceAngle) {
++    const overtime = clamp((simulationElapsedMs - hardAssistStart) / 900, 0, 1);
++    const targetRotation = buildFaceUpTargetRotation(entry.mesh.geometry, entry.die.faceIndex, entry.rotation);
++    const assist = clamp(
++      dt * GUIDED_SETTLE.hardAssistRate * (0.45 + overtime * 0.55),
++      0,
++      GUIDED_SETTLE.hardAssistMaxStep
++    );
++    entry.rotation = quatSlerp(entry.rotation, targetRotation, assist);
++
++    // Keep a faint physical roll alive while recovery finishes so the assisted
++    // orientation cannot read as a static object being rotated by the UI.
++    const minRoll = 0.34 + overtime * 0.16;
++    entry.angularVelocity[0] += axisX * minRoll * dt;
++    entry.angularVelocity[2] += axisZ * minRoll * dt;
++  }
+ }
+@@ -850,10 +875,14 @@
+           // correction at the old hard timeout. Give Guided Settle a brief
+           // physics-only grace period to finish orienting the result naturally.
+           const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;
+           const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);
+-          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;
+-          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);
++          const absoluteSafetyExpired = elapsed >= GUIDED_SETTLE.absoluteSafetyMs;
++
++          // Never enter hold with the wrong physical face merely because a timer
++          // expired. v0.7.13 QA proved that emergency path could display a valid
++          // faceIndex with the wrong side physically upward. The late in-motion
++          // recovery above must first acquire the authoritative face.
++          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || (absoluteSafetyExpired && facesReady)) beginSettle(now);
+         } else if (phase === "settle") {
