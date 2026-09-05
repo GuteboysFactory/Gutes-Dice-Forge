@@ -21,6 +21,14 @@ const FACE_TEXT_PATTERNS = Object.freeze([
   new RegExp(`\\b${TYPE_LABEL_PATTERN}\\s*(?:Die\\s*)?(?:Face|Result)\\s*#?\\s*(\\d{1,2})\\b`, "gi")
 ]);
 
+function sharedCaptureState() {
+  const key = "__GENESYS_DICE_FORGE_CAPTURE_STATE__";
+  if (!globalThis[key]) {
+    globalThis[key] = { messageIds: new Set(), fingerprints: new Map() };
+  }
+  return globalThis[key];
+}
+
 function compact(value) {
   return String(value ?? "").toLowerCase().replace(/[^a-z]/g, "");
 }
@@ -254,8 +262,7 @@ export function installGenesysAutoBridge(api, { moduleId = "genesys-dice-forge" 
   if (!api || !isGenesysGameSystem()) return { installed: false, reason: "not-genesys-system" };
 
   const seenRollIds = new Set();
-  const recentFingerprints = new Map();
-  const presentedMessages = new Set();
+  const shared = sharedCaptureState();
 
   const remember = (payload) => {
     if (payload?.rollId) {
@@ -263,27 +270,29 @@ export function installGenesysAutoBridge(api, { moduleId = "genesys-dice-forge" 
       if (seenRollIds.size > 300) seenRollIds.delete(seenRollIds.values().next().value);
     }
     const fingerprint = payloadFingerprint(payload);
-    recentFingerprints.set(fingerprint, Date.now());
-    if (recentFingerprints.size > 300) recentFingerprints.delete(recentFingerprints.keys().next().value);
+    shared.fingerprints.set(fingerprint, Date.now());
+    if (shared.fingerprints.size > 300) shared.fingerprints.delete(shared.fingerprints.keys().next().value);
     const messageId = payload?.context?.messageId;
     if (messageId) {
-      presentedMessages.add(messageId);
-      if (presentedMessages.size > 300) presentedMessages.delete(presentedMessages.values().next().value);
+      shared.messageIds.add(String(messageId));
+      if (shared.messageIds.size > 300) shared.messageIds.delete(shared.messageIds.values().next().value);
     }
   };
 
   const alreadySeen = (payload) => {
     if (payload?.rollId && seenRollIds.has(payload.rollId)) return true;
     const messageId = payload?.context?.messageId;
-    if (messageId && presentedMessages.has(messageId)) return true;
+    if (messageId && shared.messageIds.has(String(messageId))) return true;
     const fingerprint = payloadFingerprint(payload);
-    const timestamp = recentFingerprints.get(fingerprint);
+    const timestamp = shared.fingerprints.get(fingerprint);
     return Boolean(timestamp && Date.now() - timestamp < 1200);
   };
 
   const present = async (payload) => {
     if (!payload?.dice?.length || !api.wantsSystemRollPresentation?.()) return false;
     if (alreadySeen(payload)) return false;
+    // Mark before starting animation so renderChatMessageHTML cannot replay the same
+    // ChatMessage while this async presentation is still running.
     remember(payload);
     try {
       const result = await api.presentResolvedSystemRoll(payload);
@@ -308,7 +317,7 @@ export function installGenesysAutoBridge(api, { moduleId = "genesys-dice-forge" 
 
   Hooks.on("createChatMessage", inspectMessage);
   Hooks.on("updateChatMessage", (message) => {
-    if (!presentedMessages.has(message?.id)) inspectMessage(message);
+    if (!shared.messageIds.has(String(message?.id ?? ""))) inspectMessage(message);
   });
 
   for (const hookName of COMMON_HOOKS) {
@@ -318,6 +327,6 @@ export function installGenesysAutoBridge(api, { moduleId = "genesys-dice-forge" 
     });
   }
 
-  console.info("[Genesys Dice Forge] Zero-config Genesys auto-capture installed (flags + roll terms + chat face list + resolved-roll hooks).");
+  console.info("[Genesys Dice Forge] Zero-config Genesys auto-capture installed (shared dedupe + flags + roll terms + chat face list + resolved-roll hooks).");
   return { installed: true, mode: "zero-config" };
 }
