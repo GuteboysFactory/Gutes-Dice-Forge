@@ -1,5 +1,24 @@
 # Genesys Dice Forge Changelog
 
+## 0.8.0 - Feature Complete Baseline
+
+- Promotes the approved v0.7.17 runtime to the feature-complete baseline.
+- Keeps natural rigid-body landing and authoritative top-face artwork remapping as the locked result-presentation architecture.
+- Preserves zero-config Genesys roll capture, shared capture deduplication, rendered-chat fallback, integrated chat-toolbar launcher, standalone simulator, deterministic 52-face QA cycler, premium dice artwork, and GOLD adaptive audio.
+- Adds `featureComplete: true` API capability metadata for the stabilization phase.
+- Replaces the historical patch-chain rebuild path with a conservative canonical package workflow that starts from the approved stable runtime and overlays only first-class repository sources.
+- Adds package hardening gates: syntax-check every packaged JavaScript module, verify manifest/API version consistency, verify all manifest esmodules/styles exist, verify the 52-face inventory, reject deprecated `renderChatMessage`, reject reactivated target-face guidance, and reject a restored final `targetRotation` snap.
+- Foundry VTT 13.351 remains the verified runtime baseline. Version 14 remains declared compatible but still requires a real Foundry v14 client smoke test before it should be described as runtime-verified.
+- No renderer physics, dice artwork, launcher placement, capture behavior, or audio behavior is intentionally changed from approved v0.7.17.
+
+## 0.7.17 - Natural Landing + Authoritative Face Remap
+
+- Stops forcing the rigid body toward an authoritative polygon face.
+- Allows each die to complete its physical roll naturally, eliminating the target-face chase that could produce terminal spin or visible last-second corrections.
+- Determines the physical polygon that naturally lands upward and maps the authoritative Genesys face artwork onto that top polygon.
+- Keeps authoritative `type + faceIndex` result data unchanged; only presentation artwork is remapped.
+- Preserves the approved three motion profiles, hold/fade continuity, automatic Genesys capture, chat launcher and GOLD adaptive audio.
+
 ## 0.7.10 - No Final Twist
 
 - Removes the visible last-second quaternion correction after the physical roll has visually finished.
