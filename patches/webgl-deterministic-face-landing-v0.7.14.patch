@@ -1,6 +1,6 @@
 --- a/scripts/render/webgl/webgl-renderer.js
 +++ b/scripts/render/webgl/webgl-renderer.js
-@@ -127,10 +127,14 @@
+@@ -127,8 +127,12 @@
  const GUIDED_SETTLE = Object.freeze({
    freePhysicsMs: 700,
    guideLeadMs: 430,
@@ -14,7 +14,7 @@
 +  hardAssistMaxStep: 0.10,
 +  absoluteSafetyMs: 5200
  });
-@@ -544,10 +548,31 @@
+@@ -544,7 +548,32 @@
    const torque = Math.min(
      12.0,
      angle * (5.2 + deadlineRamp * 4.2)
@@ -47,7 +47,7 @@
 +    entry.angularVelocity[2] += axisZ * minRoll * dt;
 +  }
  }
-@@ -850,10 +875,14 @@
+@@ -850,7 +879,12 @@
            // correction at the old hard timeout. Give Guided Settle a brief
            // physics-only grace period to finish orienting the result naturally.
            const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;
