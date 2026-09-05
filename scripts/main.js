@@ -4,6 +4,7 @@ import { NullRenderer } from "./render/null-renderer.js";
 import { WebGLDiceRenderer } from "./render/webgl/webgl-renderer.js";
 import { DiceAudioEngine } from "./audio/audio-engine.js";
 import { installGenesysAutoBridge } from "./integration/genesys-auto-bridge.js";
+import { syncFaceAudit } from "./integration/face-audit.js";
 
 let renderer;
 let api;
@@ -94,12 +95,15 @@ function registerSettings() {
 
   game.settings.register(MODULE_ID, "debug", {
     name: "QA / Debug Mode",
-    hint: "Shows a local TEST DICE button and writes renderer diagnostics to the browser console.",
+    hint: "Shows local Dice Forge QA controls, including TEST DICE and the deterministic 52-face visual audit cycler, and writes renderer diagnostics to the browser console.",
     scope: "client",
     config: true,
     type: Boolean,
     default: false,
-    onChange: () => syncQaButton()
+    onChange: () => {
+      syncQaButton();
+      syncFaceAudit();
+    }
   });
 }
 
@@ -130,7 +134,7 @@ function syncQaButton() {
   qaButton.type = "button";
   qaButton.className = "genesys-dice-forge-qa-button";
   qaButton.innerHTML = '<i class="fa-solid fa-dice-d20"></i><span>TEST DICE</span>';
-  qaButton.title = "Genesys Dice Forge v0.7.4 zero-config auto-capture QA";
+  qaButton.title = `Genesys Dice Forge v${api?.version ?? "0.7.13"} QA`;
   qaButton.addEventListener("click", () => api?.preview());
   document.body.appendChild(qaButton);
 }
@@ -306,6 +310,7 @@ Hooks.once("init", async () => {
 Hooks.once("ready", () => {
   syncSimulatorButton();
   syncQaButton();
+  syncFaceAudit();
   installGenesysAutoBridge(api, { moduleId: MODULE_ID });
   Hooks.callAll("genesysDiceForgeReady", api);
   if (!api?.getSystemBridge()) {
