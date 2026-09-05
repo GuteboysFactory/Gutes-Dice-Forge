@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.13";
+    return "0.7.14";
   }
 
   get capabilities() {
@@ -32,6 +32,7 @@ export class GenesysDiceForgeAPI {
       motionProfiles: ["rail-rebound", "scatter-roll", "deep-bounce"],
       randomizedMotionProfileSelection: true,
       guidedSettle: true,
+      deterministicPhysicalFaceLanding: true,
       visibleFinalTwist: false,
       holdPoseContinuity: true,
       defensiveRotationFallback: true,
@@ -41,7 +42,7 @@ export class GenesysDiceForgeAPI {
       signatureGlyphArtwork: true,
       premiumCleanDiceArtwork: true,
       authenticFaceComposition: true,
-      resultFacePresentation: "guided-in-motion-continuous-hold-pose",
+      resultFacePresentation: "guided-in-motion-deterministic-face-up-continuous-hold-pose",
       systemRollPresentation: true,
       automaticSystemBridge: true,
       zeroConfigAutoCapture: true,
@@ -58,35 +59,27 @@ export class GenesysDiceForgeAPI {
   }
 
   registerSystemBridge(bridge) {
-    if (!bridge || typeof bridge !== "object") {
-      throw new Error("[Genesys Dice Forge] registerSystemBridge requires an object.");
-    }
+    if (!bridge || typeof bridge !== "object") throw new Error("[Genesys Dice Forge] registerSystemBridge requires an object.");
     this.#systemBridge = bridge;
     console.log("[Genesys Dice Forge] Genesys system bridge registered.");
     return this;
   }
 
-  getSystemBridge() {
-    return this.#systemBridge;
-  }
+  getSystemBridge() { return this.#systemBridge; }
 
   wantsSystemRollPresentation() {
     return Boolean(this.#renderer?.capabilities?.renderer3d);
   }
 
   async presentResolvedSystemRoll(payload) {
-    if (!this.wantsSystemRollPresentation()) {
-      return { rendered: false, reason: "system-presentation-disabled" };
-    }
+    if (!this.wantsSystemRollPresentation()) return { rendered: false, reason: "system-presentation-disabled" };
     return this.animateRoll(payload);
   }
 
   async animateRoll(payload) {
     validateRollPayload(payload);
     const selectedTheme = game.settings.get(MODULE_ID, "theme");
-    if (selectedTheme && this.#renderer?.themeId !== selectedTheme) {
-      await this.#renderer?.setTheme?.(selectedTheme);
-    }
+    if (selectedTheme && this.#renderer?.themeId !== selectedTheme) await this.#renderer?.setTheme?.(selectedTheme);
     if (game.settings.get(MODULE_ID, "soundEnabled")) {
       this.#audioEngine?.playRoll?.(payload, { volume: game.settings.get(MODULE_ID, "soundVolume") });
     }
@@ -94,8 +87,7 @@ export class GenesysDiceForgeAPI {
   }
 
   createSimulatedRoll(pool, context = {}) {
-    const normalized = normalizePool(pool);
-    return createSimulatedRollPayload(normalized, context);
+    return createSimulatedRollPayload(normalizePool(pool), context);
   }
 
   rollPool(pool, context = {}) {
@@ -108,12 +100,9 @@ export class GenesysDiceForgeAPI {
     const payload = {
       rollId: `preview-audio-${Date.now()}`,
       dice: [
-        { type: "boost", faceIndex: 2 },
-        { type: "setback", faceIndex: 4 },
-        { type: "ability", faceIndex: 6 },
-        { type: "difficulty", faceIndex: 5 },
-        { type: "proficiency", faceIndex: 11 },
-        { type: "challenge", faceIndex: 11 }
+        { type: "boost", faceIndex: 2 }, { type: "setback", faceIndex: 4 },
+        { type: "ability", faceIndex: 6 }, { type: "difficulty", faceIndex: 5 },
+        { type: "proficiency", faceIndex: 11 }, { type: "challenge", faceIndex: 11 }
       ],
       totals: {}, net: {}, context: { preview: true }
     };
