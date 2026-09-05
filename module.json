@@ -1,18 +1,14 @@
 {
   "id": "genesys-dice-forge",
   "title": "Genesys Dice Forge",
-  "description": "Dedicated native-WebGL 3D narrative dice module for Genesys. Zero-config automatic Genesys roll capture, rendered-chat fallback, integrated chat-toolbar launcher positioned beside Foundry chat utilities, three randomized physical roll profiles, guided in-motion result alignment, deterministic 52-face visual QA cycler, hold-pose continuity, premium physical dice, authentic face composition, always-on-top presentation, standalone roll simulator, adaptive audio, Foundry VTT 13.351 and Version 14.",
-  "version": "0.7.13",
+  "description": "Dedicated native-WebGL 3D narrative dice module for Genesys. Zero-config automatic Genesys roll capture, rendered-chat fallback, integrated chat-toolbar launcher positioned beside Foundry chat utilities, three randomized physical roll profiles, guided in-motion deterministic face landing, deterministic 52-face visual QA cycler, hold-pose continuity, premium physical dice, authentic face composition, always-on-top presentation, standalone roll simulator, adaptive audio, Foundry VTT 13.351 and Version 14.",
+  "version": "0.7.14",
   "compatibility": {
     "minimum": "13.351",
     "verified": "13.351",
     "maximum": "14"
   },
-  "authors": [
-    {
-      "name": "Guteboys Factory"
-    }
-  ],
+  "authors": [{ "name": "Guteboys Factory" }],
   "esmodules": [
     "scripts/main.js",
     "scripts/integration/render-chat-capture.js",
@@ -26,10 +22,8 @@
   ],
   "languages": [],
   "socket": false,
-  "relationships": {
-    "systems": []
-  },
+  "relationships": { "systems": [] },
   "url": "https://github.com/GuteboysFactory/Gutes-Dice-Forge",
   "manifest": "https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/module.json",
-  "download": "https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/dist/genesys-dice-forge-v0.7.13.zip"
+  "download": "https://raw.githubusercontent.com/GuteboysFactory/Gutes-Dice-Forge/main/dist/genesys-dice-forge-v0.7.14.zip"
 }
