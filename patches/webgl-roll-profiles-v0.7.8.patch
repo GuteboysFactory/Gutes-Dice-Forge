@@ -1,0 +1,205 @@
+--- a/scripts/render/webgl/webgl-renderer.js
++++ b/scripts/render/webgl/webgl-renderer.js
+@@ -64,6 +64,62 @@
+   diceRestitution: 0.38
+ });
+ 
++// Three motion profiles share the same upper-left release. Variation begins only
++// after the first tabletop impact so Dice Forge keeps a recognizable signature
++// while avoiding the exact same physical story on every roll. Profiles never
++// influence the authoritative faceIndex; they only change post-impact motion.
++const ROLL_PROFILES = Object.freeze([
++  Object.freeze({
++    id: "rail-rebound",
++    weight: 0.40,
++    bounceMultiplier: 1.00,
++    firstImpactLateralKick: 0.10,
++    firstImpactForwardMultiplier: 1.00,
++    preRailDampingOffset: 0.09,
++    postRailDampingOffset: -0.13,
++    railDrive: 0.62,
++    requireRailForSleep: true,
++    guideAfterMs: 1050,
++    maxSimulationMs: 3050
++  }),
++  Object.freeze({
++    id: "scatter-roll",
++    weight: 0.35,
++    bounceMultiplier: 0.96,
++    firstImpactLateralKick: 1.15,
++    firstImpactForwardMultiplier: 0.91,
++    preRailDampingOffset: 0.03,
++    postRailDampingOffset: -0.10,
++    railDrive: 0.18,
++    requireRailForSleep: false,
++    guideAfterMs: 1450,
++    maxSimulationMs: 2920
++  }),
++  Object.freeze({
++    id: "deep-bounce",
++    weight: 0.25,
++    bounceMultiplier: 1.30,
++    firstImpactLateralKick: 0.34,
++    firstImpactForwardMultiplier: 0.97,
++    preRailDampingOffset: 0.07,
++    postRailDampingOffset: -0.08,
++    railDrive: 0.32,
++    requireRailForSleep: false,
++    guideAfterMs: 1500,
++    maxSimulationMs: 3260
++  })
++]);
++
++function chooseRollProfile(random) {
++  const roll = random();
++  let cursor = 0;
++  for (const profile of ROLL_PROFILES) {
++    cursor += profile.weight;
++    if (roll <= cursor) return profile;
++  }
++  return ROLL_PROFILES[0];
++}
++
+ // GPU mesh helpers are deliberately kept independent from the rigid-body
+ // state. v0.6.0 accidentally dropped these two constructors during the
+ // physics refactor, which made WebGL initialization fall back to the null
+@@ -193,7 +249,7 @@
+     entry.position[1] = floorY;
+ 
+     if (impactSpeed > 0.42) {
+-      entry.velocity[1] = impactSpeed * entry.physics.floorRestitution;
++      entry.velocity[1] = impactSpeed * entry.physics.floorRestitution * entry.rollProfile.bounceMultiplier;
+       entry.angularVelocity[0] += entry.impactTwist[0] * impactSpeed * 0.24;
+       entry.angularVelocity[1] += entry.impactTwist[1] * impactSpeed * 0.16;
+       entry.angularVelocity[2] += entry.impactTwist[2] * impactSpeed * 0.24;
+@@ -201,6 +257,25 @@
+       entry.velocity[1] = 0;
+     }
+ 
++    if (!entry.firstFloorImpact) {
++      entry.firstFloorImpact = true;
++      // All profiles arrive with the same release. This is the first point at
++      // which their motion diverges: Rail Rebound stays nearly straight,
++      // Scatter fans across the tabletop, and Deep Bounce keeps more vertical
++      // energy. Each die still gets a small independent variation.
++      const lateral = entry.rollProfile.firstImpactLateralKick
++        * entry.profileLateralSign
++        * (0.72 + entry.profileLateralAmount * 0.56);
++      entry.velocity[2] += lateral;
++      entry.velocity[0] *= entry.rollProfile.firstImpactForwardMultiplier;
++      if (entry.rollProfile.id === "scatter-roll") {
++        entry.angularVelocity[1] += entry.profileLateralSign * (0.55 + entry.profileLateralAmount * 0.75);
++      } else if (entry.rollProfile.id === "deep-bounce") {
++        entry.angularVelocity[0] += entry.impactTwist[0] * 0.9;
++        entry.angularVelocity[2] += entry.impactTwist[2] * 0.9;
++      }
++    }
++
+     // Coulomb-ish tabletop friction and rolling coupling. The different
+     // polyhedra retain different amounts of energy: d12 rolls longest, d6
+     // sheds energy fastest.
+@@ -208,8 +283,8 @@
+     // right rail. After the first rail rebound, increase rolling resistance so
+     // the return trip is shorter and the whole animation stays snappy.
+     const dampingBase = entry.rightWallHits > 0
+-      ? Math.max(0.30, entry.physics.linearDamping - 0.13)
+-      : Math.min(0.74, entry.physics.linearDamping + 0.09);
++      ? Math.max(0.30, entry.physics.linearDamping + entry.rollProfile.postRailDampingOffset)
++      : Math.min(0.78, entry.physics.linearDamping + entry.rollProfile.preRailDampingOffset);
+     const linear = Math.pow(dampingBase, dt);
+     entry.velocity[0] *= linear;
+     entry.velocity[2] *= linear;
+@@ -242,7 +317,7 @@
+     if ((entry.rightWallHits ?? 0) === 0
+       && entry.position[0] < TABLE.wallRightX - entry.collisionRadius - 0.45
+       && entry.velocity[0] < 2.7) {
+-      entry.velocity[0] += 0.62 * dt;
++      entry.velocity[0] += entry.rollProfile.railDrive * dt;
+     }
+ 
+     if (horizontalSpeed < 0.055) {
+@@ -327,7 +402,9 @@
+   // Give the intended right-edge rebound time to happen before considering a
+   // die asleep. A safety timeout still prevents a blocked die from stalling
+   // the presentation indefinitely.
+-  if ((entry.rightWallHits ?? 0) === 0 && simulationElapsedMs < entry.delay + 2150) return false;
++  if (entry.rollProfile.requireRailForSleep
++    && (entry.rightWallHits ?? 0) === 0
++    && simulationElapsedMs < entry.delay + 2150) return false;
+   const floorY = contactCenterY(entry);
+   const horizontal = Math.hypot(entry.velocity[0], entry.velocity[2]);
+   const vertical = Math.abs(entry.velocity[1]);
+@@ -355,8 +432,9 @@
+   // gentle horizontal torque that encourages the authoritative face toward
+   // the top while the die is STILL visibly rolling. The final settle then has
+   // only a few degrees left to correct instead of performing a visible flip.
+-  if ((entry.rightWallHits ?? 0) === 0) return;
+-  if (simulationElapsedMs < entry.delay + 1050) return;
++  const railReached = (entry.rightWallHits ?? 0) > 0;
++  if (!railReached && entry.rollProfile.requireRailForSleep) return;
++  if (simulationElapsedMs < entry.delay + entry.rollProfile.guideAfterMs) return;
+   const horizontalSpeed = Math.hypot(entry.velocity[0], entry.velocity[2]);
+   if (horizontalSpeed > 2.05 || Math.abs(entry.velocity[1]) > 0.24) return;
+ 
+@@ -563,10 +641,23 @@
+     }
+ 
+     const dice = payload.dice.slice();
+-    const seed = hashString(payload.rollId ?? `${Date.now()}`);
++    const rollKey = payload.rollId ?? `${Date.now()}`;
++    const seed = hashString(rollKey);
+     const random = mulberry32(seed);
++    // Separate RNG stream: selecting a profile must not change the familiar
++    // upper-left release or the per-die launch variation.
++    const profileRandom = mulberry32(hashString(`${rollKey}:motion-profile`));
++    const rollProfile = chooseRollProfile(profileRandom);
+     const startTime = performance.now();
+ 
++    if (this.debug) {
++      console.debug(`[Genesys Dice Forge] Motion profile: ${rollProfile.id}`, {
++        rollId: payload.rollId,
++        profile: rollProfile.id,
++        dice: dice.length
++      });
++    }
++
+     this.activeDice = dice.map((die, index) => {
+       const definition = getDieDefinition(die.type);
+       const mesh = this.meshes.get(definition.shape);
+@@ -608,6 +699,7 @@
+         mesh,
+         scale,
+         physics,
++        rollProfile,
+         collisionRadius,
+         targetRotation,
+         rotation: initialRotation,
+@@ -619,6 +711,9 @@
+         velocity: [vx, vy, vz],
+         angularVelocity: angularAxis.map((v) => v / angularLength * angularMagnitude),
+         impactTwist: [random() - 0.5, random() - 0.5, random() - 0.5],
++        profileLateralSign: random() < 0.5 ? -1 : 1,
++        profileLateralAmount: random(),
++        firstFloorImpact: false,
+         delay: index * 18 + (index % 3) * 5,
+         opacity: 0,
+         settleFromRotation: null,
+@@ -669,7 +764,7 @@
+ 
+           const allSleeping = elapsed >= PHYSICS.minSimulationMs
+             && this.activeDice.every((entry) => dieIsNearlySleeping(entry, elapsed));
+-          if (allSleeping || elapsed >= PHYSICS.maxSimulationMs) beginSettle(now);
++          if (allSleeping || elapsed >= rollProfile.maxSimulationMs) beginSettle(now);
+         } else if (phase === "settle") {
+           const t = clamp((now - settleStart) / PHYSICS.settleMs);
+           const eased = smoothstep(0, 1, t);
+@@ -712,7 +807,8 @@
+               tableRoll: true,
+               rigidBodyTablePhysics: true,
+               overhandDrop: true,
+-              rightRailRebound: true,
++              rightRailRebound: rollProfile.id === "rail-rebound",
++              motionProfile: rollProfile.id,
+               deterministicFaces: true,
+               playerReadableTopFaces: true
+             });
