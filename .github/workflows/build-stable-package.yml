@@ -30,9 +30,6 @@ jobs:
           mkdir -p build dist
           unzip -q genesys-dice-forge.zip -d build
 
-          # Overlay first-class repository sources onto the approved packaged
-          # runtime. Renderer/geometry/audio assets remain exactly as accepted in
-          # the current stable ZIP unless explicitly changed in a dedicated patch.
           cp module.json build/module.json
           cp README.md build/README.md
           cp CHANGELOG.md build/CHANGELOG.md
@@ -54,14 +51,10 @@ jobs:
           )
           echo "Packaging Genesys Dice Forge ${VERSION}"
 
-          # Syntax-check every packaged module script. This catches malformed
-          # overlays without executing Foundry/browser globals in Node.
           while IFS= read -r -d '' file; do
             node --check "$file"
           done < <(find build/scripts -type f -name '*.js' -print0)
 
-          # Preserve the accepted v0.7.17 natural-landing architecture. Physics
-          # must not resume chasing an authoritative polygon or snap at hold.
           grep -q 'NATURAL_LANDING_AUTHORITATIVE_FACE_REMAP' build/scripts/render/webgl/webgl-renderer.js
           grep -q 'uDisplayTopFaceIndex' build/scripts/render/webgl/shaders.js
           grep -q 'topPhysicalFaceIndex(entry)' build/scripts/render/webgl/webgl-renderer.js
@@ -74,15 +67,20 @@ jobs:
             exit 1
           fi
 
-          # Foundry v13/v14 static compatibility gates. Runtime v14 still needs a
-          # real Foundry client smoke test before it can be marked verified.
           grep -q 'Hooks.on("renderChatMessageHTML"' build/scripts/integration/render-chat-capture.js
-          if grep -R -E 'Hooks\.on\(["'"']renderChatMessage["'"'][[:space:]]*,' build/scripts; then
-            echo 'ERROR: deprecated renderChatMessage hook found.'
-            exit 1
-          fi
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          deprecated = re.compile(r'''Hooks\.on\(\s*["']renderChatMessage["']\s*,''')
+          offenders = []
+          for path in Path('build/scripts').rglob('*.js'):
+              text = path.read_text(encoding='utf-8')
+              if deprecated.search(text): offenders.append(str(path))
+          if offenders:
+              raise SystemExit('Deprecated renderChatMessage hook found: ' + ', '.join(offenders))
+          print('PASS modern renderChatMessageHTML hook only')
+          PY
 
-          # Verify exact narrative-face inventory is still 52 physical faces.
           node --input-type=module <<'NODE'
           import { pathToFileURL } from 'node:url';
           import path from 'node:path';
@@ -98,7 +96,6 @@ jobs:
           console.log('PASS 52/52 narrative face inventory');
           NODE
 
-          # Manifest/package consistency and V13/V14 declaration.
           python - <<'PY'
           import json, pathlib, re
           root = pathlib.Path('build')
@@ -113,7 +110,7 @@ jobs:
           for rel in m.get('styles', []):
               assert (root / rel).is_file(), f'Missing style: {rel}'
           api = (root / 'scripts/api.js').read_text(encoding='utf-8')
-          match = re.search(r'get version\(\)\s*\{\s*return\s+["\']([^"\']+)', api)
+          match = re.search(r'''get version\(\)\s*\{\s*return\s+["']([^"']+)''', api)
           assert match and match.group(1) == m['version'], f"API version mismatch: {match.group(1) if match else 'missing'} vs {m['version']}"
           print('PASS manifest/API/package consistency', m['version'])
           PY
