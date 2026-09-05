@@ -1,0 +1,35 @@
+name: Audit 52 Genesys Faces
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-52-faces.yml"
+      - "audits/**"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inspect packaged dice definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf audit-build
+          mkdir audit-build
+          unzip -q genesys-dice-forge.zip -d audit-build
+
+          echo '=== SCRIPT TREE ==='
+          find audit-build/scripts -type f -maxdepth 5 | sort
+
+          echo '=== LIKELY FACE / DICE SOURCES ==='
+          grep -RniE --include='*.js' --include='*.mjs' --include='*.json' \
+            'boost|setback|ability|difficulty|proficiency|challenge|faceIndex|rawSymbols|faces|symbols' \
+            audit-build/scripts | head -n 1200 || true
