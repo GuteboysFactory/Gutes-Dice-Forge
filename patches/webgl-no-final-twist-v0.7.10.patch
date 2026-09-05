@@ -1,0 +1,43 @@
+--- a/scripts/render/webgl/webgl-renderer.js
++++ b/scripts/render/webgl/webgl-renderer.js
+@@ -129,8 +129,8 @@
+   freePhysicsMs: 700,
+   guideLeadMs: 430,
+   maxHorizontalSpeed: 3.40,
+   maxVerticalSpeed: 0.52,
+-  sleepFaceAngle: 0.11,
+-  graceMs: 380
++  sleepFaceAngle: 0.025,
++  graceMs: 1200
+ });
+@@ -526,7 +526,7 @@
+   const targetAngularSpeed = Math.min(
+-    7.4,
+-    angle * (3.6 + deadlineRamp * 2.6)
++    8.8,
++    angle * (4.0 + deadlineRamp * 3.4)
+   );
+@@ -551,7 +551,7 @@
+   const torque = Math.min(
+-    9.0,
+-    angle * (4.8 + deadlineRamp * 3.0)
++    12.0,
++    angle * (5.2 + deadlineRamp * 4.2)
+   ) * strength;
+@@ -853,13 +853,22 @@
+           // Do not cut directly from free rotation into a large deterministic
+           // correction at the old hard timeout. Give Guided Settle a brief
+           // physics-only grace period to finish orienting the result naturally.
+           const guidanceGraceExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs;
+-          if (allSleeping || guidanceGraceExpired) beginSettle(now);
++          const facesReady = this.activeDice.every((entry) => resultFaceError(entry).angle < GUIDED_SETTLE.sleepFaceAngle);
++          const emergencyExpired = elapsed >= rollProfile.maxSimulationMs + GUIDED_SETTLE.graceMs + 1200;
++          if ((allSleeping && facesReady) || (guidanceGraceExpired && facesReady) || emergencyExpired) beginSettle(now);
+         } else if (phase === "settle") {
+           const t = clamp((now - settleStart) / PHYSICS.settleMs);
+-          const eased = smoothstep(0, 1, t);
++          // v0.7.10: never rotate a die after the physical roll has visually
++          // finished. The authoritative face is now acquired during Guided
++          // Settle. Keeping eased at zero preserves the exact physical end pose
++          // and removes the visible last-frame quaternion twist completely.
++          const eased = 0;
