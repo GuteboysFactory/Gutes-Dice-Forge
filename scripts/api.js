@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "0.7.16";
+    return "0.7.17";
   }
 
   get capabilities() {
@@ -31,19 +31,18 @@ export class GenesysDiceForgeAPI {
       throwDirection: "left-to-right",
       motionProfiles: ["rail-rebound", "scatter-roll", "deep-bounce"],
       randomizedMotionProfileSelection: true,
-      guidedSettle: true,
+      naturalPhysicalLanding: true,
+      authoritativeFaceRemap: true,
       deterministicPhysicalFaceLanding: true,
-      smoothLateFaceAcquisition: true,
       visibleFinalTwist: false,
-      holdPoseContinuity: true,
-      defensiveRotationFallback: true,
+      endlessTerminalSpinGuard: true,
       exactDiceCountPresentation: true,
       engravedSymbols: true,
       signatureEffects: true,
       signatureGlyphArtwork: true,
       premiumCleanDiceArtwork: true,
       authenticFaceComposition: true,
-      resultFacePresentation: "guided-in-motion-smooth-face-acquisition-continuous-hold-pose",
+      resultFacePresentation: "natural-physics-landing-authoritative-top-face-remap",
       systemRollPresentation: true,
       automaticSystemBridge: true,
       zeroConfigAutoCapture: true,
