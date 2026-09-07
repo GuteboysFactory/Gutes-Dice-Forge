@@ -1,7 +1,9 @@
 import { getModuleAssetUrl } from "../compat/foundry.js";
 
 const BANK = Object.freeze({
-  light: ["light-01.ogg", "light-02.ogg", "light-03.ogg"],
+  // light-02.ogg intentionally excluded: audio audit found an abnormally loud
+  // background-noise floor (~-22 dB) and almost no quiet-to-transient gap.
+  light: ["light-01.ogg", "light-03.ogg"],
   medium: ["medium-01.ogg", "medium-02.ogg"],
   heavy: ["heavy-01.ogg", "heavy-02.ogg"]
 });
@@ -32,6 +34,7 @@ export class DiceAudioEngine {
       polishedNaturalMix: true,
       pitchStablePlayback: true,
       clickFreeTailFade: true,
+      noisySampleQuarantine: true,
       source: "approved-user-supplied-sample-pack"
     });
   }
@@ -110,17 +113,11 @@ export class DiceAudioEngine {
     if (this.destroyed) return;
     const count = Math.max(1, Number(payload?.dice?.length ?? 1));
 
-    // A short fade avoids hard-cut clicks when a player rolls again before the
-    // previous sample tail has fully decayed.
     this.stopAll({ fade: true });
 
     const master = clamp(volume);
     const microRate = () => 0.994 + Math.random() * 0.012;
 
-    // Keep the mix deliberately sparse. Previous builds could stack several
-    // near-identical samples 35-90 ms apart, which sounded phasey/"flammy".
-    // One strong body sample plus at most one quiet scatter tail is more like a
-    // real handful of dice hitting a tabletop.
     if (count <= 2) {
       const main = pick(BANK.light);
       this.#play(main, { volume: master * 0.92, rate: microRate() });
