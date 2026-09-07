@@ -1,0 +1,33 @@
+name: Inspect Dice Forge Audio Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-audio-v1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect packaged audio engine and samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf inspect-audio
+          mkdir inspect-audio
+          unzip -q genesys-dice-forge.zip -d inspect-audio
+          echo '=== audio engine ==='
+          sed -n '1,360p' inspect-audio/scripts/audio/audio-engine.js || true
+          echo '=== audio files ==='
+          find inspect-audio -type f \( -iname '*.wav' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.m4a' \) -print | sort
+          echo '=== media metadata ==='
+          while IFS= read -r f; do
+            echo "--- $f"
+            ffprobe -v error -show_entries format=duration,size:stream=codec_name,sample_rate,channels -of default=noprint_wrappers=1 "$f" || true
+          done < <(find inspect-audio -type f \( -iname '*.wav' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.m4a' \) | sort)
