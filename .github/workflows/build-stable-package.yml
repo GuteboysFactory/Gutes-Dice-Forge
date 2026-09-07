@@ -33,9 +33,10 @@ jobs:
           cp module.json build/module.json
           cp README.md build/README.md
           cp CHANGELOG.md build/CHANGELOG.md
-          mkdir -p build/scripts/integration build/styles
+          mkdir -p build/scripts/integration build/scripts/audio build/styles
           cp scripts/api.js build/scripts/api.js
           cp scripts/main.js build/scripts/main.js
+          cp scripts/audio/audio-engine.js build/scripts/audio/audio-engine.js
           cp scripts/integration/genesys-auto-bridge.js build/scripts/integration/genesys-auto-bridge.js
           cp scripts/integration/render-chat-capture.js build/scripts/integration/render-chat-capture.js
           cp scripts/integration/chat-launcher.js build/scripts/integration/chat-launcher.js
@@ -112,7 +113,10 @@ jobs:
           api = (root / 'scripts/api.js').read_text(encoding='utf-8')
           match = re.search(r'''get version\(\)\s*\{\s*return\s+["']([^"']+)''', api)
           assert match and match.group(1) == m['version'], f"API version mismatch: {match.group(1) if match else 'missing'} vs {m['version']}"
-          print('PASS manifest/API/package consistency', m['version'])
+          audio = (root / 'scripts/audio/audio-engine.js').read_text(encoding='utf-8')
+          assert 'polishedNaturalMix: true' in audio
+          assert 'pitchStablePlayback: true' in audio
+          print('PASS manifest/API/audio/package consistency', m['version'])
           PY
 
           rm -f "dist/genesys-dice-forge-v${VERSION}.zip"
@@ -128,6 +132,7 @@ jobs:
           VERSION=$(cat /tmp/gdf-version)
           unzip -tq genesys-dice-forge.zip
           unzip -p genesys-dice-forge.zip module.json > /tmp/gdf-module.json
+          unzip -p genesys-dice-forge.zip scripts/audio/audio-engine.js | grep -q 'polishedNaturalMix: true'
           python - <<'PY'
           import json
           with open('/tmp/gdf-module.json', encoding='utf-8') as f:
