@@ -14,7 +14,7 @@ export class GenesysDiceForgeAPI {
   }
 
   get version() {
-    return "1.0.1";
+    return "1.0.2";
   }
 
   get capabilities() {
@@ -56,6 +56,7 @@ export class GenesysDiceForgeAPI {
       releaseCandidate: false,
       foundry14RuntimeVerified: false,
       polishedRollAudio: true,
+      noisySampleQuarantine: true,
       alwaysOnTopPresentation: true,
       standaloneRollSimulator: true,
       audio: this.#audioEngine?.capabilities ?? null,
