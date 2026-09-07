@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null
+      - name: Install audio audit dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-numpy >/dev/null
       - name: Analyze sample noise floors
         shell: bash
         run: |
@@ -38,8 +40,6 @@ jobs:
               dur=len(x)/sr
               if len(x)<sr//20:
                   continue
-              # 20ms windows. Estimate "background" from the quietest 25% of
-              # frames and compare it to active/transient level.
               n=max(1,int(sr*0.020))
               m=(len(x)//n)*n
               frames=x[:m].reshape(-1,n)
@@ -49,7 +49,6 @@ jobs:
               median=np.percentile(db,50)
               active=np.percentile(db,90)
               peak=20*math.log10(float(np.max(np.abs(x)))+1e-12)
-              # high-frequency share in quietest frames: hiss tends to stand out.
               qidx=np.argsort(rms)[:max(1,len(rms)//4)]
               q=frames[qidx].reshape(-1)
               spec=np.abs(np.fft.rfft(q))**2
@@ -60,8 +59,6 @@ jobs:
           print('file,duration_s,quiet25_db,median_db,active90_db,peak_db,hf_quiet_share,dynamic_gap_db')
           for r in rows:
               print(f'{r[0]},{r[1]:.3f},{r[2]:.2f},{r[3]:.2f},{r[4]:.2f},{r[5]:.2f},{r[6]:.4f},{r[7]:.2f}')
-          # Suspicion score: unusually loud quiet floor + lots of HF energy +
-          # compressed gap between quiet floor and active transient level.
           q=np.array([r[2] for r in rows])
           hf=np.array([r[6] for r in rows])
           gap=np.array([r[7] for r in rows])
